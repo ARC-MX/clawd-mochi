@@ -33,7 +33,7 @@ esp-idf/
 │   ├── main.cpp            # port of clawd_mochi.ino
 │   ├── display.h/.cpp      # ST7789 driver + minimal GFX
 │   ├── font5x7.h           # classic 5x7 font (generated)
-│   ├── logo_data.h         # LOGO_TRIS / LOGO_SEGS (generated)
+│   ├── logo_data.h         # LOGO_BITMAP, RGB565 boot logo (generated)
 │   └── index_html.h        # web controller HTML (generated)
 ```
 

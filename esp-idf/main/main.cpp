@@ -38,6 +38,8 @@
 
 #include "display.h"
 #include "logo_data.h"
+#include "splash_text.h"
+#include "splash_credit.h"
 #include "esp_littlefs.h"
 #include "ble_cli.h"
 #include "anim.h"
@@ -142,10 +144,9 @@ static void setBacklight(bool on) {
 }
 static uint8_t  animSpeed    = 1;
 
-static uint16_t animBgColor  = 0;
 static uint16_t drawBgColor  = 0;
 
-// Status line drawn under the eyes (set over serial / HTTP).
+// Status line, shown on the static views (set over serial / HTTP).
 #define STATUS_MAX 96
 static char     statusText[STATUS_MAX] = "";
 static uint8_t  statusSize  = 2;
@@ -164,9 +165,40 @@ static char     termLines[TERM_ROWS][TERM_COLS + 1];
 static uint8_t  termRow     = 0;
 static uint8_t  termCol     = 0;
 
-// ── Logo ──────────────────────────────────────────────────────
-#define LOGO_CX 120
-#define LOGO_CY 105
+// ── Boot logo (Jaguar Micro) ──────────────────────────────────
+// LOGO_BITMAP is a wide ~3.6:1 mark streamed from flash by drawImage565. Its
+// black "Jaguar" lettering is illegible over the panel's orange / dark themes,
+// so it is mounted on a rounded white card that supplies the light background
+// it needs — see the bg treatment discussion in the repo history.
+#define LOGO_PAD     12
+#define CARD_W       (LOGO_W + LOGO_PAD * 2)
+#define CARD_H       (LOGO_H + LOGO_PAD * 2)
+#define CARD_X       ((DISP_W - CARD_W) / 2)
+#define CARD_RADIUS  8
+
+#define LOGO_X       (CARD_X + LOGO_PAD)
+
+#define BRAND_TEXT   "Jaguar Micro"
+#define BRAND_SIZE   2
+#define BRAND_CHAR_W (6 * BRAND_SIZE)          // 6 px glyph cell at size 1
+#define BRAND_TEXT_H (8 * BRAND_SIZE)
+#define BRAND_GAP    16
+
+// The card + caption block is centred as a unit in the panel.
+#define CARD_Y       ((DISP_H - (CARD_H + BRAND_GAP + BRAND_TEXT_H)) / 2)
+#define LOGO_Y       (CARD_Y + LOGO_PAD)
+#define BRAND_Y      (CARD_Y + CARD_H + BRAND_GAP)
+
+// ── Boot splash ───────────────────────────────────────────────
+// The panel's only font is the ASCII 5x7 in font5x7.h, so the Chinese line
+// cannot be drawn as text at all — both lines ship as pre-rendered RGB565
+// bitmaps made by tools/text2header.py. The background is baked into those
+// bitmaps, so this value and their --bg must be regenerated together.
+#define SPLASH_BG       Display::color565(255, 202, 1)     // the logo's yellow
+#define SPLASH_GAP      26
+#define SPLASH_Y        ((DISP_H - (SPLASH_TITLE_H + SPLASH_GAP + SPLASH_CREDIT_H)) / 2)
+#define SPLASH_TITLE_Y  SPLASH_Y
+#define SPLASH_CREDIT_Y (SPLASH_Y + SPLASH_TITLE_H + SPLASH_GAP)
 
 static httpd_handle_t server = nullptr;
 
@@ -197,7 +229,6 @@ static void initColours() {
   C_DARKBG = Display::color565(10,  12,  16);
   C_MUTED  = Display::color565(90,  88,  86);
   C_GREEN  = Display::color565(80, 220, 130);
-  animBgColor = C_ORANGE;
   drawBgColor = C_ORANGE;
 }
 
@@ -205,18 +236,68 @@ static void initColours() {
 //  LOGO
 // ═════════════════════════════════════════════════════════════
 
-static void drawLogoFilled(uint16_t bg, uint16_t fg) {
-  tft.fillScreen(bg);
-  for (uint16_t i = 0; i < LOGO_TRI_COUNT; i++) {
-    tft.fillTriangle(LOGO_TRIS[i][0], LOGO_TRIS[i][1], LOGO_TRIS[i][2],
-                     LOGO_TRIS[i][3], LOGO_TRIS[i][4], LOGO_TRIS[i][5], fg);
+// Horizontal inset carved from each side of card row `dy`, measured from the
+// nearest edge, to fake an r-radius corner. The panel has no alpha, so rounded
+// corners are punched back out in the background colour instead of masked.
+static int16_t cornerInset(int16_t dy, int16_t r) {
+  if (dy >= r) return 0;
+  int16_t d = r - 1 - dy;                 // distance from the corner centre
+  int16_t span = r - (int16_t)(sqrtf((float)(r * r - d * d)) + 0.5f);
+  return span > 0 ? span : 0;
+}
+
+// Draws the "Jaguar Micro" caption, printed twice one pixel apart to fake a
+// bold weight (the same trick the old "Anthropic" caption used).
+static void drawBrandText() {
+  tft.setTextColor(C_WHITE);
+  tft.setTextSize(BRAND_SIZE);
+  int16_t x = (DISP_W - (int16_t)strlen(BRAND_TEXT) * BRAND_CHAR_W) / 2;
+  tft.setCursor(x, BRAND_Y);
+  tft.print(BRAND_TEXT);
+  tft.setCursor(x + 1, BRAND_Y);
+  tft.print(BRAND_TEXT);
+}
+
+// Paints the boot artwork for screen rows [y0, y1), clearing the band to the
+// background first.
+//
+// That clear is not optional: the reveal lip is drawn full width, but the card,
+// the mark and the caption are all narrower than the panel, so a band repaint
+// that only touched those rectangles would leave the lip's outer ends and any
+// lip above the card on screen for good.
+//
+// Working a row band at a time keeps this off a 115 KB full-frame buffer, which
+// this board cannot afford — it has no PSRAM.
+static void drawLogoRows(int16_t y0, int16_t y1) {
+  if (y1 <= y0) return;
+  tft.fillRect(0, y0, DISP_W, y1 - y0, C_DARKBG);
+
+  int16_t cy0 = y0 > CARD_Y ? y0 : CARD_Y;
+  int16_t cy1 = y1 < CARD_Y + CARD_H ? y1 : CARD_Y + CARD_H;
+  if (cy0 < cy1) {
+    tft.fillRect(CARD_X, cy0, CARD_W, cy1 - cy0, C_WHITE);
+    for (int16_t y = cy0; y < cy1; y++) {
+      int16_t fromTop = y - CARD_Y;
+      int16_t fromBot = (CARD_Y + CARD_H - 1) - y;
+      int16_t inset = cornerInset(fromTop < fromBot ? fromTop : fromBot,
+                                  CARD_RADIUS);
+      if (inset > 0) {                    // carve the corner back to the screen
+        tft.fillRect(CARD_X, y, inset, 1, C_DARKBG);
+        tft.fillRect(CARD_X + CARD_W - inset, y, inset, 1, C_DARKBG);
+      }
+    }
   }
-  tft.setTextColor(fg);
-  tft.setTextSize(2);
-  tft.setCursor(LOGO_CX - 54, 210);
-  tft.print("Anthropic");
-  tft.setCursor(LOGO_CX - 53, 210);
-  tft.print("Anthropic");
+
+  int16_t ly0 = y0 > LOGO_Y ? y0 : LOGO_Y;
+  int16_t ly1 = y1 < LOGO_Y + LOGO_H ? y1 : LOGO_Y + LOGO_H;
+  if (ly0 < ly1) {
+    tft.drawImage565(LOGO_X, ly0, LOGO_W, ly1 - ly0,
+                     LOGO_BITMAP + (size_t)(ly0 - LOGO_Y) * LOGO_W);
+  }
+
+  // The caption is a single unclippable glyph run, so it goes down on the first
+  // band that has cleared its top row — by then every row it covers is revealed.
+  if (y0 <= BRAND_Y && BRAND_Y < y1) drawBrandText();
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -386,15 +467,43 @@ static void termAddChar(char c) {
 //  ANIMATIONS
 // ═════════════════════════════════════════════════════════════
 
+// Boot animation: the artwork rolls up from the bottom edge, its leading edge
+// catching the light like the lip of a turning page.
+//
+// A page-flip is a wipe, not a fade, so this needs no per-pixel blending — just
+// a reveal line sweeping bottom to top. Each step paints the newly exposed band
+// and lays a lit lip along the new edge; the next band paints over that lip, so
+// the total SPI traffic stays near one screenful.
 static void animLogoReveal() {
   busy = true;
-  tft.fillScreen(animBgColor);
-  for (uint16_t i = 0; i < LOGO_SEG_COUNT; i++) {
-    tft.drawLine(LOGO_SEGS[i][0], LOGO_SEGS[i][1], LOGO_SEGS[i][2], LOGO_SEGS[i][3], C_WHITE);
-    tft.drawLine(LOGO_SEGS[i][0] + 1, LOGO_SEGS[i][1], LOGO_SEGS[i][2] + 1, LOGO_SEGS[i][3], C_WHITE);
-    if (i % 4 == 0) delayMs(speedMs(8));
+  tft.fillScreen(C_DARKBG);
+
+  const int steps = 30;
+  const uint16_t LIP_DIM = Display::color565(150, 152, 158);
+  int16_t cursor = DISP_H;              // content is painted from cursor down
+
+  for (int s = 1; s <= steps; s++) {
+    // Ease-in-out: the page pulls away slowly, accelerates, then settles.
+    float p = (float)s / steps;
+    float eased = (p < 0.5f) ? 2.0f * p * p
+                             : 1.0f - 2.0f * (1.0f - p) * (1.0f - p);
+    int16_t y = (int16_t)(DISP_H - eased * DISP_H + 0.5f);
+    if (y >= cursor) continue;          // sub-pixel step, nothing new to expose
+
+    drawLogoRows(y, cursor);            // also repaints the previous lip
+    if (y > 0) {
+      // Only when the topmost row is reached does the lip's second row fall off
+      // the panel — fillArea does not clip, so guard it here.
+      tft.fillRect(0, y, DISP_W, 1, C_WHITE);
+      if (y + 1 < DISP_H) tft.fillRect(0, y + 1, DISP_W, 1, LIP_DIM);
+      cursor = (int16_t)(y + 2 > DISP_H ? DISP_H : y + 2);
+    } else {
+      cursor = 0;                       // don't paint a lip over the finished top
+    }
+    delayMs(speedMs(12));
   }
-  drawLogoFilled(animBgColor, C_WHITE);
+
+  drawLogoRows(0, cursor);              // clear any leftover lip
   delayMs(1500);
   busy = false;
 }
@@ -937,17 +1046,20 @@ extern "C" void app_main() {
   tft.setRotation(3);
   initColours();
 
-  // Boot splash
-  tft.fillScreen(animBgColor);
-  tft.setTextColor(C_WHITE);
-  tft.setTextSize(3);
-  tft.setCursor(DISP_W / 2 - 54, DISP_H / 2 - 22);
-  tft.print("Clawd");
-  tft.setCursor(DISP_W / 2 - 54, DISP_H / 2 + 14);
-  tft.print("Mochi");
-  delayMs(1200);
+  // Boot splash — commemorative card, pale yellow with black lettering.
+  ESP_LOGI(TAG, "boot: splash start");
+  tft.fillScreen(SPLASH_BG);
+  ESP_LOGI(TAG, "boot: splash bg");
+  tft.drawImage565((DISP_W - SPLASH_TITLE_W) / 2, SPLASH_TITLE_Y,
+                   SPLASH_TITLE_W, SPLASH_TITLE_H, SPLASH_TITLE_BITMAP);
+  ESP_LOGI(TAG, "boot: splash title");
+  tft.drawImage565((DISP_W - SPLASH_CREDIT_W) / 2, SPLASH_CREDIT_Y,
+                   SPLASH_CREDIT_W, SPLASH_CREDIT_H, SPLASH_CREDIT_BITMAP);
+  ESP_LOGI(TAG, "boot: splash credit");
+  delayMs(1600);
 
   animLogoReveal();
+  ESP_LOGI(TAG, "boot: logo done");
 
 #if ENABLE_WIFI
   wifiInitSoftAP();
