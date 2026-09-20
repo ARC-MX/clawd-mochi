@@ -7,6 +7,7 @@ write instead of USB serial, so the device does not have to be tethered.
 Usage:
   mochi_ble.py eyes                 # normal eyes
   mochi_ble.py squish               # squish eyes
+  mochi_ble.py state idle           # play a themed animation ("state list" to list)
   mochi_ble.py status Thinking...   # status text below the eyes
   mochi_ble.py raw "speed3"         # any raw command from the serial protocol
   mochi_ble.py scan                 # list nearby BLE devices
@@ -74,6 +75,11 @@ def build_commands(argv):
         return ["logo"]
     if sub == "canvas":
         return ["canvas"]
+    if sub == "state":
+        # state <name> — play a themed clawd animation; "state off" goes back to
+        # the built-in eyes. "state list" prints the states the theme provides.
+        arg = rest[0] if rest else "off"
+        return ["states" if arg == "list" else ("state " + arg).strip()]
     if sub == "text":
         return ["t" + " ".join(rest)]
     if sub == "bg":

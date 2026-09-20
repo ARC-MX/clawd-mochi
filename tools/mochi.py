@@ -211,6 +211,11 @@ def main():
         cmd = "q"
     elif subcmd == "canvas":
         cmd = "canvas"
+    elif subcmd == "state":
+        # state <name> — play a themed clawd animation; "state off" goes back to
+        # the built-in eyes. "states" lists what the mounted theme provides.
+        arg = sys.argv[2] if len(sys.argv) > 2 else "off"
+        cmd = "states" if arg == "list" else ("state " + arg).strip()
     elif subcmd == "bg":
         cmd = "bg" + (sys.argv[2] if len(sys.argv) > 2 else "#000000")
     elif subcmd == "speed":
