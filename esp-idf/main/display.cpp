@@ -12,21 +12,37 @@
 
 static const char* TAG = "display";
 
-// The panel is driven by solid-colour fills only, so every primitive lands in
-// fillArea(). Transfers are chunked by whole rows into a shared scratch buffer.
+// Outstanding-transfer slots for the streaming path (see streamBegin()).
+// Matches the DMA queue depth configured in init().
+#define STREAM_DEPTH 4
+// Max rows the animation player pushes per streamRect(); must match anim.cpp's
+// BAND_ROWS so max_transfer_sz covers one band.
+#define STREAM_BAND_ROWS 8
+
+// One transfer's worth of pixels for the shared scratch buffer. The animation
+// player passes its own bands to streamRect(), which needs max_transfer_sz to
+// cover them, so the bus is sized for the larger of the two.
 #define FILL_PIXELS (240 * 8)   // pixels per transfer
+#define MAX_TRANSFER_PIXELS (240 * STREAM_BAND_ROWS)
 
 static SemaphoreHandle_t s_flush_done = nullptr;
+static SemaphoreHandle_t s_dma_slots = nullptr;    // free DMA slots for streaming
 static SemaphoreHandle_t s_panel_lock = nullptr;   // serialises panel access between tasks
 static uint16_t          s_fill_buf[FILL_PIXELS];
 
 // draw_bitmap() queues the pixels for DMA and returns immediately; this
 // signals completion so the scratch buffer can be safely refilled.
+//
+// s_flush_done is a *counting* semaphore: every completed transfer gives once,
+// so each waiter receives exactly the completion it queued. With a binary
+// semaphore two interleaved tasks could absorb each other's give and one would
+// block forever (which is why the callers below also hold s_panel_lock).
 static bool IRAM_ATTR onColorTransDone(esp_lcd_panel_io_handle_t io,
                                        esp_lcd_panel_io_event_data_t* edata,
                                        void* user_ctx) {
   BaseType_t hp = pdFALSE;
   xSemaphoreGiveFromISR(s_flush_done, &hp);
+  xSemaphoreGiveFromISR(s_dma_slots, &hp);
   return hp == pdTRUE;
 }
 
@@ -37,8 +53,10 @@ void Display::init(uint16_t w, uint16_t h) {
   _width = w;
   _height = h;
 
-  s_flush_done = xSemaphoreCreateBinary();
+  s_flush_done = xSemaphoreCreateCounting(STREAM_DEPTH, 0);
   ESP_ERROR_CHECK(s_flush_done != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
+  s_dma_slots = xSemaphoreCreateCounting(STREAM_DEPTH, STREAM_DEPTH);
+  ESP_ERROR_CHECK(s_dma_slots != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
   s_panel_lock = xSemaphoreCreateMutex();
   ESP_ERROR_CHECK(s_panel_lock != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
 
@@ -48,7 +66,7 @@ void Display::init(uint16_t w, uint16_t h) {
   buscfg.sclk_io_num = _sclk;
   buscfg.quadwp_io_num = -1;
   buscfg.quadhd_io_num = -1;
-  buscfg.max_transfer_sz = FILL_PIXELS * 2;
+  buscfg.max_transfer_sz = MAX_TRANSFER_PIXELS * 2;
   ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
   esp_lcd_panel_io_spi_config_t io_config = {};
@@ -170,6 +188,43 @@ void Display::drawImage565(int16_t x, int16_t y, int16_t w, int16_t h,
     xSemaphoreTake(s_flush_done, portMAX_DELAY);
   }
 
+  xSemaphoreGive(s_panel_lock);
+}
+
+// ── Batched streaming path (animation player) ──────────────────
+//
+// drawImage565() takes the panel lock and blocks on the DMA-completion
+// semaphore for *every* rectangle. The animation player pushes hundreds of
+// small rectangles per frame, and that per-call overhead measured ~284 us —
+// far more than the bytes being moved. These take the lock once for the whole
+// frame and pipeline through the DMA queue, blocking only when it is full.
+
+void Display::streamBegin() {
+  xSemaphoreTake(s_panel_lock, portMAX_DELAY);
+}
+
+void Display::streamRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                         const uint16_t* data) {
+  if (w <= 0 || h <= 0 || data == nullptr) return;
+
+  // Wait for a free DMA slot. The completion callback returns one, so this
+  // only blocks once STREAM_DEPTH rectangles are in flight.
+  xSemaphoreTake(s_dma_slots, portMAX_DELAY);
+
+  // Unlike drawImage565() the caller's buffer is handed straight to the DMA
+  // engine — it must be DRAM-resident and unchanged until streamEnd().
+  ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(_panel, x, y, x + w, y + h, data));
+}
+
+void Display::streamEnd() {
+  // Drain: every outstanding transfer returns its slot, so taking them all
+  // means the panel has finished, and the caller's buffers are reusable.
+  for (int i = 0; i < STREAM_DEPTH; i++) {
+    xSemaphoreTake(s_dma_slots, portMAX_DELAY);
+  }
+  for (int i = 0; i < STREAM_DEPTH; i++) {
+    xSemaphoreGive(s_dma_slots);
+  }
   xSemaphoreGive(s_panel_lock);
 }
 

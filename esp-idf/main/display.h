@@ -47,6 +47,19 @@ public:
   void drawImage565(int16_t x, int16_t y, int16_t w, int16_t h,
                     const uint16_t* data);
 
+  // Batched blit for the animation player, which pushes hundreds of small
+  // rectangles per frame. drawImage565() blocks on every one of them (lock +
+  // DMA-completion wait), which measured ~284 us per call — the dominant cost.
+  // This takes the panel once for the whole frame and pipelines through the DMA
+  // queue, waiting only when the queue is full.
+  //
+  // `data` must be DMA-capable and stay valid until streamEnd(), so callers
+  // must pass their own rotating buffers rather than a shared scratch buffer.
+  void streamBegin();
+  void streamRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                  const uint16_t* data);
+  void streamEnd();
+
   // text
   void setCursor(int16_t x, int16_t y);
   void setTextColor(uint16_t c) { _textcolor = _textbg = c; }
