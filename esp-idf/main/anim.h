@@ -12,9 +12,15 @@ extern "C" {
 // theme manifest. Pass an empty string to stop and go idle.
 void animPlayState(const char* state);
 
-// Colour the screen is cleared to when the state changes (RGB565). Defaults to
-// white, matching the theme's own background.
+// Colour the screen is cleared to when the state changes (RGB565). This is also
+// what shows through the artwork: palette index 0 is treated as transparent, so
+// the background is a runtime setting rather than something baked into the .caf.
+// Defaults to white.
 void animSetBackground(unsigned short colour);
+
+// Playback rate: 1 slow (~10 fps), 2 the authored rate (~15 fps), 3 fast
+// (~22 fps). Anything else falls back to 2.
+void animSetSpeed(unsigned level);
 
 // Lists the states the mounted theme provides, space-separated, into `out`.
 void animListStates(char* out, unsigned outLen);

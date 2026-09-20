@@ -41,12 +41,14 @@ static const char* TAG = "anim";
 #define BAND_ROWS     8      // rows per panel transfer (matches FILL_PIXELS)
 
 // Playback rate. These sticker GIFs are authored at ~15 fps (66 ms/frame), so
-// this is the rate at which the motion looks as intended — playing them faster
+// that is the rate at which the motion looks as intended — playing them faster
 // just runs the animation fast. It also leaves real headroom: a full-bbox push
 // measures 39-46 ms on this board, well inside the 66 ms budget, so no frame is
-// ever dropped. Raise it toward 30 only if you want the pet to move faster.
-#define ANIM_FPS      15
-#define ANIM_FRAME_MS (1000 / ANIM_FPS)
+// ever dropped.
+//
+// Settable at runtime through animSetSpeed(); the default is the authored rate.
+#define ANIM_FPS_NORMAL 15
+static volatile uint16_t s_frameMs = 1000 / ANIM_FPS_NORMAL;
 
 // Log the achieved frame rate every N frames. Handy when tuning ANIM_FPS or the
 // .caf encoding against this board's SPI ceiling; off by default to keep the
@@ -176,12 +178,25 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
   }
   if (fseek(fd, (long)blobOffset, SEEK_SET) != 0) return false;
 
+  // Snapshot the surround: animSetBackground() can be called from another task
+  // between bands, and a frame drawn half in one colour and half in another
+  // would show as a seam.
+  const uint16_t bg = s_bg;
+
   tft.streamBegin();
 
   uint32_t done = 0, bandPos = 0, slot = 0;
   uint16_t bandY = 0;
   int remaining = 0;
   uint16_t color = 0;
+  bool field = false;         // run is palette index 0 — leave the surround be
+
+  // Palette index 0 is the .caf's field, not a colour to draw. Pre-fill each
+  // band with the surround and skip index-0 runs, so the field shows through.
+  // That is what makes the background a runtime setting: the colour baked into
+  // the file is never actually displayed.
+  uint16_t* next = band[slot];
+  for (uint32_t i = 0; i < bandPixels; i++) next[i] = bg;
 
   while (done < totalPixels) {
     if (remaining == 0) {
@@ -191,24 +206,28 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
         return false;
       }
       remaining = run[0];
+      field = (run[1] == 0);
       color = palette[run[1]];
       if (remaining == 0) continue;
     }
 
     uint32_t space = bandPixels - bandPos;
     uint32_t n = (uint32_t)remaining < space ? (uint32_t)remaining : space;
-    uint16_t* out = band[slot];
-    for (uint32_t i = 0; i < n; i++) out[bandPos + i] = color;
+    if (!field) {
+      for (uint32_t i = 0; i < n; i++) next[bandPos + i] = color;
+    }
 
     bandPos += n;
     remaining -= (int)n;
     done += n;
 
     if (bandPos == bandPixels) {
-      tft.streamRect(x0, y0 + bandY, w, BAND_ROWS, out);
+      tft.streamRect(x0, y0 + bandY, w, BAND_ROWS, next);
       slot = (slot + 1) % STREAM_BUFS;
       bandY = (uint16_t)(bandY + BAND_ROWS);
       bandPos = 0;
+      next = band[slot];
+      for (uint32_t i = 0; i < bandPixels; i++) next[i] = bg;
     }
   }
 
@@ -278,11 +297,11 @@ static bool playOnce(const char* state, uint32_t gen) {
     // Re-seek to the next offset entry for the following iteration.
     fseek(fd, CAF_TABLE_OFF + (long)f * 4 + 4, SEEK_SET);
 
-    // Pace to ANIM_FPS. Rendering is now much cheaper than the SPI-bound full
-    // frame, so this wait (not the bus) sets the frame rate. Subtract the work
-    // already done so a slow frame does not add to the frame time.
+    // Pace to the current frame rate. Rendering is now much cheaper than the
+    // SPI-bound full frame, so this wait (not the bus) sets the frame rate.
+    // Subtract the work already done so a slow frame does not add to it.
     const int64_t renderUs = esp_timer_get_time() - t0;
-    const int waitMs = ANIM_FRAME_MS - (int)(renderUs / 1000);
+    const int waitMs = (int)s_frameMs - (int)(renderUs / 1000);
     if (waitMs > 0) vTaskDelay(pdMS_TO_TICKS(waitMs));
 
 #if ANIM_LOG_FPS
@@ -352,6 +371,15 @@ static void animTask(void* arg) {
 }
 
 void animSetBackground(unsigned short colour) { s_bg = (uint16_t)colour; }
+
+// 1 = slow, 2 = the authored rate, 3 = fast. Anything else falls back to 2.
+void animSetSpeed(unsigned level) {
+  switch (level) {
+    case 1:  s_frameMs = 100; break;                        // ~10 fps
+    case 3:  s_frameMs = 45;  break;                        // ~22 fps
+    default: s_frameMs = 1000 / ANIM_FPS_NORMAL; break;     // ~15 fps
+  }
+}
 
 void animPlayState(const char* state) {
   if (!s_lock) {

@@ -52,6 +52,14 @@ def rgb565(r, g, b):
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
+def hex565(s):
+    """'#RRGGBB' -> RGB565, so the field colour can match the theme's surround."""
+    s = s.lstrip("#")
+    if len(s) != 6:
+        raise SystemExit(f"error: --bg wants RRGGBB, got {s!r}")
+    return rgb565(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
 def bg_index(idx, w, h):
     """The index that is the background: the one appearing on the frame border
     that also covers the most of the frame.
@@ -86,7 +94,7 @@ def dist565(a, b):
     return (ar - br) ** 2 * 4 + (ag - bg) ** 2 + (ab - bb) ** 2 * 4
 
 
-def load_frames(path):
+def load_frames(path, bg565=0xFFFF):
     """Return (index-byte arrays, delays, size, palette).
 
     Reads each frame through the GIF's OWN palette (`seek` + `convert("P")`)
@@ -104,14 +112,18 @@ def load_frames(path):
     # The stickers are square-padded with a transparent background. The panel has
     # no alpha, so that index has to become a real colour — and whatever the GIF
     # happens to store there is arbitrary (one set's idle art lands on a salmon
-    # pink), which is what made the panel look colour-shifted. Force it to white,
-    # and pin white to index 0 so quantisation can never dilute it.
+    # pink), which is what made the panel look colour-shifted. Force it to the
+    # theme's field colour, and pin that colour to index 0 so quantisation can
+    # never dilute it.
+    #
+    # Note the field colour must not appear in the artwork: any pixel matching it
+    # becomes background and is swallowed. Same caveat white always carried.
     im.seek(0)
     trans = im.info.get("transparency")
 
     raw_frames = []       # per frame: (index bytes, per-frame rgb565 palette)
     delays = []
-    union = {}            # rgb565 -> colour list position (excluding white)
+    union = {}            # rgb565 -> colour list position (excluding the field)
     for i in range(im.n_frames):
         im.seek(i)
         p = im.convert("P")
@@ -123,17 +135,17 @@ def load_frames(path):
                   for k in range(256)]
         idx = p.tobytes()
         bg = bg_index(idx, im.size[0], im.size[1])
-        pal565[bg] = 0xFFFF     # background -> white
+        pal565[bg] = bg565      # background -> the theme's field colour
         for u in set(idx):
             v = pal565[u]
-            if v != 0xFFFF and v not in union:
+            if v != bg565 and v not in union:
                 union[v] = len(union)
         raw_frames.append((idx, pal565))
 
     size = im.size
     colors = list(union.keys())
 
-    # Index 0 is always white (the background); artwork colours start at 1.
+    # Index 0 is always the field colour; artwork colours start at 1.
     if len(colors) <= 255:
         body = colors
     else:
@@ -145,17 +157,17 @@ def load_frames(path):
         ref = strip.quantize(colors=255, method=Image.MEDIANCUT)
         rp = ref.getpalette()
         body = [rgb565(rp[k * 3], rp[k * 3 + 1], rp[k * 3 + 2]) for k in range(255)]
-        # never emit a duplicate white in the body
-        body = [c for c in body if c != 0xFFFF]
+        # never emit a duplicate of the field colour in the body
+        body = [c for c in body if c != bg565]
         mapped = [min(range(len(body)), key=lambda k: dist565(c, body[k]))
                   for c in colors]
         union = {c: mapped[i] for i, c in enumerate(colors)}
 
-    palette = [0xFFFF] + body          # index 0 is white, 1..N the artwork
+    palette = [bg565] + body           # index 0 is the field, 1..N the artwork
     palette += [0] * (256 - len(palette))
-    # colour -> final index: white is 0, everything else is 1 + its body slot
+    # colour -> final index: the field is 0, everything else is 1 + its body slot
     final = {c: 1 + union[c] for c in colors}
-    final[0xFFFF] = 0
+    final[bg565] = 0
 
     idx_frames = [bytes(final[pal565[u]] for u in idx)
                   for idx, pal565 in raw_frames]
@@ -230,19 +242,19 @@ def scale_idx(idx, sw, sh, dw, dh):
 
 def compose(idx_frames, size, palette, margin):
     """Crop every frame to the artwork's union bounding box, upscale it to fill
-    the panel, and centre it on a white field.
+    the panel, and centre it on the field colour (index 0).
 
     The sticker GIFs are drawn with the character occupying only ~33% x 21% of
     the canvas — the desktop app scales them itself. On a 240x240 panel that
-    reads as a tiny crab adrift in white, so the artwork is re-framed here.
+    reads as a tiny crab adrift in empty field, so the artwork is re-framed here.
     """
     sw, sh = size
-    white = 0
+    field = 0          # index 0 is the field colour, by construction
     xs0 = ys0 = 10 ** 9
     xs1 = ys1 = -1
     for idx in idx_frames:
         for i, v in enumerate(idx):
-            if v != white:
+            if v != field:
                 x, y = i % sw, i // sw
                 if x < xs0: xs0 = x
                 if x > xs1: xs1 = x
@@ -278,8 +290,8 @@ def compose(idx_frames, size, palette, margin):
     return out_frames, size, (ox, oy, dw, dh)
 
 
-def convert(src, dst, margin=12, fit=True):
-    idx_frames, delays, size, palette = load_frames(src)
+def convert(src, dst, margin=12, fit=True, bg565=0xFFFF):
+    idx_frames, delays, size, palette = load_frames(src, bg565)
     cw, ch = size
     if fit:
         idx_frames, size, rect = compose(idx_frames, size, palette, margin)
@@ -305,11 +317,16 @@ def main():
     ap.add_argument("input", help="a .gif file, or a directory of them")
     ap.add_argument("-o", "--out", required=True, help="output directory")
     ap.add_argument("--margin", type=int, default=12,
-                    help="white border kept around the artwork (default 12)")
+                    help="border kept around the artwork (default 12)")
+    ap.add_argument("--bg", default="ffffff",
+                    help="field colour behind the artwork, as RRGGBB "
+                         "(default white); must match the theme's surround")
     ap.add_argument("--no-fit", action="store_true",
                     help="keep the GIF's own framing instead of cropping to the "
                          "artwork and scaling it up to fill the panel")
     args = ap.parse_args()
+
+    bg565 = hex565(args.bg)
 
     os.makedirs(args.out, exist_ok=True)
 
@@ -325,7 +342,7 @@ def main():
     for name in gifs:
         src = os.path.join(args.input, name)
         dst = os.path.join(args.out, os.path.splitext(name)[0] + ".caf")
-        size, frames = convert(src, dst, args.margin, not args.no_fit)
+        size, frames = convert(src, dst, args.margin, not args.no_fit, bg565)
         total += size
         orig = os.path.getsize(src)
         print(f"  {name:32} {frames:>3} frames  {orig/1024:>6.0f}K -> {size/1024:>5.0f}K")

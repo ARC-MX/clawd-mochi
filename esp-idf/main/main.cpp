@@ -104,6 +104,10 @@ static uint8_t  currentView  = VIEW_ANIM;
 static bool     stateRequested = false;
 // Colour the screen is cleared to before an animation starts, and the canvas
 // background. White matches the theme's own background.
+// Colour the screens that are not animations are cleared to, and — since the
+// player treats the artwork's field index as transparent — the pet's own
+// background too. Set in initColours(); the '#RRGGBB' default lives there so it
+// can go through color565(), which is not a constant expression.
 static uint16_t animSurround = 0xFFFF;
 static bool     busy         = false;
 static bool     backlightOn  = true;
@@ -168,7 +172,10 @@ static void setBacklightDuty(uint32_t duty) {
 static void setBacklight(bool on) {
   setBacklightDuty(on ? BL_DUTY_MIN : 0);   // "on" = 3% brightness
 }
-static uint8_t  animSpeed    = 1;
+// Playback rate for the pet's animations: 1 slow, 2 authored rate, 3 fast.
+// Handed to the player via animSetSpeed(); the boot splash has its own fixed
+// pacing and is deliberately not affected by this.
+static uint8_t  animSpeed    = 2;
 
 static uint16_t drawBgColor  = 0;
 
@@ -234,12 +241,6 @@ static httpd_handle_t server = nullptr;
 
 static void delayMs(int ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
-static int speedMs(int ms) {
-  if (animSpeed == 3) return ms / 2;
-  if (animSpeed == 1) return ms * 2;
-  return ms;
-}
-
 static uint16_t hexToRgb565(const char* hex) {
   while (*hex == '#') hex++;
   if (strlen(hex) != 6) return C_WHITE;
@@ -250,11 +251,27 @@ static uint16_t hexToRgb565(const char* hex) {
   return Display::color565((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
 }
 
+// Inverse of hexToRgb565(), so the web UI can load the current colours from the
+// device instead of keeping its own copy of the defaults — one source of truth,
+// and a colour set over serial/BLE shows up in the pickers too.
+static void rgb565ToHex(uint16_t c, char* out, size_t outLen) {
+  // Scale back to 8 bits by replicating the high bits into the low ones, which
+  // is what makes 0x1F -> 0xFF rather than 0xF8.
+  uint8_t r = (uint8_t)(((c >> 11) & 0x1F) * 255 / 31);
+  uint8_t g = (uint8_t)(((c >> 5) & 0x3F) * 255 / 63);
+  uint8_t b = (uint8_t)((c & 0x1F) * 255 / 31);
+  snprintf(out, outLen, "#%02x%02x%02x", r, g, b);
+}
+
 static void initColours() {
   C_ORANGE = Display::color565(218, 17, 0);
   C_DARKBG = Display::color565(10,  12,  16);
   C_MUTED  = Display::color565(90,  88,  86);
   C_GREEN  = Display::color565(80, 220, 130);
+  // Pale mint. Not pure white: the crab is warm orange, and a white field reads
+  // as blown-out glare next to it. Change it here, from the web UI's colour
+  // picker, or with `bg#RRGGBB` over serial/BLE.
+  animSurround = Display::color565(232, 242, 238);
   drawBgColor = C_ORANGE;
 }
 
@@ -526,7 +543,10 @@ static void animLogoReveal() {
     } else {
       cursor = 0;                       // don't paint a lip over the finished top
     }
-    delayMs(speedMs(12));
+    // Fixed pacing, not the pet's speed setting: this is a one-shot boot
+    // flourish, and tying it to animSpeed made the UI's speed slider look like
+    // it controlled the pet when it only ever changed this.
+    delayMs(24);
   }
 
   drawLogoRows(0, cursor);              // clear any leftover lip
@@ -643,6 +663,7 @@ static esp_err_t routeSpeed(httpd_req_t* req) {
     if (s < 1) s = 1;
     if (s > 3) s = 3;
     animSpeed = (uint8_t)s;
+    animSetSpeed(animSpeed);
   }
   sendJson(req, "{\"ok\":1}");
   return ESP_OK;
@@ -652,8 +673,10 @@ static esp_err_t routeRedraw(httpd_req_t* req) {
   noteActivity();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
+    // Pet background only. This used to also set drawBgColor, which conflated
+    // the two: the canvas has its own colour, set through /draw/clear, and the
+    // web UI now exposes them as separate pickers.
     animSurround = hexToRgb565(bg);
-    drawBgColor = animSurround;
     animSetBackground(animSurround);
   }
   switch (currentView) {
@@ -737,14 +760,16 @@ static esp_err_t routeBacklight(httpd_req_t* req) {
 }
 
 static esp_err_t routeState(httpd_req_t* req) {
-  char j[128];
+  char bg[8];
+  rgb565ToHex(animSurround, bg, sizeof(bg));
+  char j[160];
   snprintf(j, sizeof(j),
-           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"speed\":%u}",
+           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"speed\":%u,\"bg\":\"%s\"}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
-           animSpeed);
+           animSpeed, bg);
   sendJson(req, j);
   return ESP_OK;
 }
@@ -908,8 +933,10 @@ static void serialHandleLine(char* line) {
 
   if (strncmp(line, "bg", 2) == 0) {         // bg#RRGGBB
     animSurround = hexToRgb565(line + 2);
-    drawBgColor = animSurround;
     animSetBackground(animSurround);
+    // The draw canvas keeps its own colour, but if it is what is on screen then
+    // this command should change what you are looking at, not something hidden.
+    if (currentView == VIEW_DRAW) drawBgColor = animSurround;
     switch (currentView) {
       case VIEW_CODE: drawCodeView();              break;
       case VIEW_DRAW: tft.fillScreen(drawBgColor); break;
@@ -922,6 +949,7 @@ static void serialHandleLine(char* line) {
   if (strncmp(line, "speed", 5) == 0) {      // speed1 / speed2 / speed3
     int s = atoi(line + 5);
     animSpeed = (uint8_t)(s < 1 ? 1 : (s > 3 ? 3 : s));
+    animSetSpeed(animSpeed);
     serialReply("ok");
     return;
   }
@@ -1154,6 +1182,7 @@ extern "C" void app_main() {
   serialInit();             // also starts BLE, when ENABLE_BLE
   animInit();
   animSetBackground(animSurround);
+  animSetSpeed(animSpeed);
 
 #if ENABLE_WIFI
   // Leave the WiFi info screen up for a few seconds, then start the idle
