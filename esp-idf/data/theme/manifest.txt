@@ -15,7 +15,7 @@
 # The rest are spare art shipped with the theme; point any state at them by
 # editing this file.
 
-idle=clawd-idle.caf
+idle=clawd-headphones-groove.caf
 thinking=clawd-thinking.caf
 working=clawd-typing.caf
 done=clawd-happy.caf
@@ -26,3 +26,5 @@ juggling=clawd-juggling.caf
 notification=clawd-notification.caf
 sweeping=clawd-sweeping.caf
 carrying=clawd-carrying.caf
+spare-idle=clawd-idle.caf
+spare-reading=clawd-idle-reading.caf
