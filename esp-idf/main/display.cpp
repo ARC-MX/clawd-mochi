@@ -136,17 +136,24 @@ void Display::fillArea(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t colo
   xSemaphoreGive(s_panel_lock);
 }
 
-// Blits a raw RGB565 bitmap supplied by the caller (e.g. the serial "img"
-// command). Bands of rows are handed straight to the panel; draw_bitmap is
-// asynchronous, so each band is waited on before returning — which also means
-// the caller's buffer is free again once this returns.
+// Blits a raw RGB565 bitmap supplied by the caller (e.g. a boot-splash bitmap
+// or the serial "img" command).
+//
+// Each band is staged through the shared scratch buffer rather than being handed
+// to the panel directly. The bus runs with DMA (see SPI_DMA_CH_AUTO in init()),
+// and this is called with artwork that lives in flash (.rodata), which the DMA
+// engine cannot read: a direct pointer there fails the transfer, the
+// on_color_trans_done callback never fires, and the wait below blocks for good.
+//
+// draw_bitmap() is asynchronous, so each band is waited on before returning —
+// which also means the scratch buffer is free again once this returns.
 void Display::drawImage565(int16_t x, int16_t y, int16_t w, int16_t h,
                            const uint16_t* data) {
   if (w <= 0 || h <= 0 || data == nullptr) return;
 
   size_t row_px   = (size_t)w;
   size_t rows_max = FILL_PIXELS / row_px;
-  if (rows_max == 0) rows_max = 1;
+  if (rows_max == 0) return;   // wider than the scratch buffer
 
   xSemaphoreTake(s_panel_lock, portMAX_DELAY);
 
@@ -154,9 +161,12 @@ void Display::drawImage565(int16_t x, int16_t y, int16_t w, int16_t h,
     size_t rows = (size_t)(h - row);
     if (rows > rows_max) rows = rows_max;
 
+    size_t n = rows * row_px;
+    memcpy(s_fill_buf, data + (size_t)row * row_px, n * sizeof(uint16_t));
+
     ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(_panel, x, y + row,
                                               x + w, y + row + (int16_t)rows,
-                                              data + (size_t)row * row_px));
+                                              s_fill_buf));
     xSemaphoreTake(s_flush_done, portMAX_DELAY);
   }
 
