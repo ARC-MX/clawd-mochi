@@ -248,7 +248,7 @@ def scale_idx(idx, sw, sh, dw, dh):
     return bytes(out)
 
 
-def compose(idx_frames, size, palette, margin):
+def compose(idx_frames, size, palette, margin, no_upscale=False):
     """Crop every frame to the artwork's union bounding box, upscale it to fill
     the panel, and centre it on the field colour (index 0).
 
@@ -275,6 +275,11 @@ def compose(idx_frames, size, palette, margin):
     avail_w = sw - margin * 2
     avail_h = sh - margin * 2
     scale = min(avail_w / bw, avail_h / bh)
+    if no_upscale:
+        # Keep the art at its native size and let the device scale it up
+        # on push. RLE runs stay long only while pixels stay crisp, so
+        # upscaling here costs bytes as well as softness.
+        scale = min(scale, 1.0)
     dw = max(1, int(bw * scale))
     dh = max(1, int(bh * scale))
 
@@ -298,11 +303,13 @@ def compose(idx_frames, size, palette, margin):
     return out_frames, size, (ox, oy, dw, dh)
 
 
-def convert(src, dst, margin=12, fit=True, bg565=0xFFFF, stride=1):
+def convert(src, dst, margin=12, fit=True, bg565=0xFFFF, stride=1,
+            no_upscale=False):
     idx_frames, delays, size, palette = load_frames(src, bg565, stride)
     cw, ch = size
     if fit:
-        idx_frames, size, rect = compose(idx_frames, size, palette, margin)
+        idx_frames, size, rect = compose(idx_frames, size, palette, margin,
+                                         no_upscale)
         x0, y0, w, h = rect
         # The player pushes whole bands, so the height must be a multiple of
         # BAND_ROWS. The artwork is centred with `margin` to spare, so rounding
@@ -326,6 +333,9 @@ def main():
     ap.add_argument("-o", "--out", required=True, help="output directory")
     ap.add_argument("--margin", type=int, default=12,
                     help="border kept around the artwork (default 12)")
+    ap.add_argument("--no-upscale", action="store_true",
+                    help="never scale the artwork up, only down; the device "
+                         "is expected to magnify it on push")
     ap.add_argument("--stride", type=int, default=1,
                     help="keep every Nth frame (default 1). Dropped frames' "
                          "durations fold into the next kept frame, so the "
@@ -354,7 +364,8 @@ def main():
     for name in gifs:
         src = os.path.join(args.input, name)
         dst = os.path.join(args.out, os.path.splitext(name)[0] + ".caf")
-        size, frames = convert(src, dst, args.margin, not args.no_fit, bg565, args.stride)
+        size, frames = convert(src, dst, args.margin, not args.no_fit, bg565, args.stride,
+                args.no_upscale)
         total += size
         orig = os.path.getsize(src)
         print(f"  {name:32} {frames:>3} frames  {orig/1024:>6.0f}K -> {size/1024:>5.0f}K")
