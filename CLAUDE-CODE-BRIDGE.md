@@ -1,6 +1,6 @@
 # Clawd Mochi ↔ Claude Code 联动方案
 
-> 状态：**设计文档（未实施）**
+> 状态：**方案 D（BLE）与 E（USB 串口）已实现并接入 Claude Code hooks**；方案 A（WiFi STA）仍为设计稿
 > 目标：让 ESP32 上的实体设备实时反映 Claude Code 的状态（空闲 / 思考中 / 正在用工具 / 需要授权）
 
 ---
@@ -12,7 +12,7 @@
 | 项目 | 接 Claude Code？ | 说明 |
 |---|---|---|
 | `clawd/`（桌面宠物） | ✅ 已接 | Electron 应用，通过 hooks 实时响应 |
-| `clawd-mochi/`（本 ESP32 项目） | ❌ 未接 | 纯手动：连其热点、浏览器点按钮 |
+| `clawd-mochi/`（本 ESP32 项目） | ✅ 已接 | USB 串口 / BLE hooks 驱动主题动画（见 §方案 D / E） |
 
 `clawd-mochi/README.md` 明确写着 "no app, no internet, no cloud required"——固件里那个 **"Claude Code" 视图只是显示模式**（画个界面 + 一个可打字的终端），**不与真实的 Claude Code 通信**。
 
@@ -36,8 +36,8 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
 
 | 请求 | 效果 |
 |---|---|
-| `GET /cmd?k=w` | 正常眼睛（空闲） |
-| `GET /cmd?k=s` | 眯眼（开心/提示） |
+| `GET /cmd?k=w` | 播放主题的 `idle` 动画（空闲） |
+| `GET /cmd?k=s` | 播放主题的 `done` 动画（开心/完成） |
 | `GET /cmd?k=d` | 切到 Claude Code 视图，进入终端模式 |
 | `GET /cmd?k=a` | 播放 logo 动画 |
 | `GET /cmd?k=q` | 退出终端模式，回到代码视图 |
@@ -102,7 +102,7 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
 |---|---|
 | 宿主机 | `hci0`（MediaTek USB，**HCI 5.4**，支持 BLE），BlueZ **5.72** |
 | 宿主工具 | `gatttool` / `btmgmt` / `hcitool` / `rfcomm` 已装；`bleak` 可 `pip install`（PyPI 可达） |
-| ESP32 | 芯片支持 BT Classic + BLE（`CONFIG_SOC_BT_SUPPORTED=y`）；**固件当前未启用**（`CONFIG_BT_ENABLED` 未开） |
+| ESP32 | 芯片支持 BT Classic + BLE（`CONFIG_SOC_BT_SUPPORTED=y`）；固件已启用 NimBLE（`CONFIG_BT_ENABLED=y`） |
 | 官方参考 | `examples/bluetooth/nimble/bleprph_wifi_coex`（BLE 外设 + WiFi 共存，与本场景一致） |
 
 两条技术路线：
@@ -131,7 +131,7 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
     "UserPromptSubmit": [{
       "hooks": [{
         "type": "command",
-        "command": "cd /path/to/clawd-mochi && python3 tools/mochi_ble.py squish && python3 tools/mochi_ble.py status \"$(basename \"$PWD\")\"",
+        "command": "cd /path/to/clawd-mochi && python3 tools/mochi_ble.py state thinking \"$(basename \"$PWD\")\"",
         "async": true,
         "timeout": 40
       }]
@@ -139,7 +139,7 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "cd /path/to/clawd-mochi && python3 tools/mochi_ble.py eyes",
+        "command": "cd /path/to/clawd-mochi && python3 tools/mochi_ble.py state done",
         "async": true,
         "timeout": 40
       }]
@@ -166,47 +166,44 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
 
 ```bash
 python3 tools/mochi.py status "Claude is thinking…"
-python3 tools/mochi.py squish
+python3 tools/mochi.py state thinking
 python3 tools/mochi.py img photo.jpg
 ```
 
 | 命令 | 效果 |
 |---|---|
-| `w` / `s` / `d` / `a` / `q` | 眼睛 / 眯眼 / Claude Code 视图 / logo / 退出终端 |
+| `w` / `s` / `d` / `a` / `q` | `idle` 动画 / `done` 动画 / Claude Code 视图 / logo / 退出终端 |
+| `state <名>` | **播放主题动画**（`idle` / `thinking` / `working` / `done` / `error` / `sleep` …）；`state off` 停止播放（停在最后一帧）；`states` 列出主题可用状态 |
 | `t<文本>` | 往终端打字 |
-| `status[N] [-c#RRGGBB] <文本>` | 眼睛下方状态文字（N=1..4 字号） |
+| `status[N] [-c#RRGGBB] <文本>` | 状态文字，显示在静态视图上（N=1..4 字号） |
 | `bg#RRGGBB` · `speed1\|2\|3` · `canvas` · `logo` | 背景 / 速度 / 画布 / logo |
 | `line x1,y1,x2,y2,#RRGGBB` | 画线 |
 | `img` | 接收整幅原始 RGB565 图像 |
 
 > ⚠️ **本机硬件注意**：这块板的自动复位电路需要**打开串口时 `DTR=True、RTS=False`，并关闭 HUPCL**（否则关闭端口时会掉线触发复位）。上游 PR 用的 `DTR=False/RTS=False` 在本板会导致每次打开都复位。`tools/mochi.py` 的 `_open()` 已经处理好了。
 
-**Claude Code hooks 示例**（写进 `~/.claude/settings.json`）：
+**Claude Code hooks（✅ 已安装）**：宿主侧脚本 `tools/mochi_hook.py` 已注册进 `~/.claude/settings.json`，映射：
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [{
-      "hooks": [{
-        "type": "command",
-        "command": "cd /path/to/clawd-mochi && python3 tools/mochi.py squish && python3 tools/mochi.py status \"$(basename \"$PWD\")\"",
-        "async": true,
-        "timeout": 20
-      }]
-    }],
-    "Stop": [{
-      "hooks": [{
-        "type": "command",
-        "command": "cd /path/to/clawd-mochi && python3 tools/mochi.py eyes",
-        "async": true,
-        "timeout": 20
-      }]
-    }]
-  }
-}
+| 事件 | 状态 |
+|---|---|
+| `UserPromptSubmit` | `state thinking` |
+| `PreToolUse` | `state working` |
+| `Stop` | `state done` |
+
+`mochi_hook.py` 做了两件事：
+
+1. **去抖**：同一状态 300ms 内只发一次（`PreToolUse` 密集触发时不刷屏），状态缓存写在 `$XDG_RUNTIME_DIR/mochi-hook-cache.json`。
+2. **传输回退**：先走 USB 串口（`mochi.py state <名>`，快），串口不可用时回退 BLE（`mochi_ble.py state <名>`）。始终 `async`、静默失败、退出码 0——设备离线时 CC 完全无感。
+
+等价的手动命令（调试用）：
+
+```bash
+python3 tools/mochi_hook.py UserPromptSubmit   # -> state thinking
+python3 tools/mochi_hook.py PreToolUse         # -> state working
+python3 tools/mochi_hook.py Stop               # -> state done
 ```
 
-> `async: true` 是**必须的**；`timeout` 也要给足——设备端每次视角切换会跑一段动画（实测约 4 秒），同步等待会把 CC 拖慢。
+状态与动画的对应写在设备端 `data/theme/manifest.txt` 里（纯文本，改了不用重编固件），所以上表的 `thinking` / `working` / `done` 具体播哪段动画由主题决定。
 
 ### 对比
 
@@ -255,13 +252,13 @@ Claude Code
 
 | Claude Code 事件 | 设备动作 | 指令 | 理由 |
 |---|---|---|---|
-| `SessionStart` | 正常眼睛 | `/cmd?k=w` | 会话开始，回到待机 |
-| `UserPromptSubmit` | 眯眼 | `/cmd?k=s` | "听到了，开始想" |
+| `SessionStart` | 待机动画 | `/cmd?k=w` | 会话开始，回到待机 |
+| `UserPromptSubmit` | 思考动画 | `/cmd?k=s` | "听到了，开始想" |
 | `PreToolUse` | Claude Code 视图 + 打字 | `/cmd?k=d` 后 `/char?c=...` | 展示正在用的工具名 |
-| `Notification` | 眯眼 | `/cmd?k=s` | 需要关注 |
-| `PermissionRequest` | 眯眼（可加闪烁） | `/cmd?k=s` | 等待授权 |
-| `Stop` | 正常眼睛 | `/cmd?k=w` | 回到空闲 |
-| `SessionEnd` | 正常眼睛 | `/cmd?k=w` | 收尾 |
+| `Notification` | 提醒动画 | `/cmd?k=s` | 需要关注 |
+| `PermissionRequest` | 提醒动画 | `/cmd?k=s` | 等待授权 |
+| `Stop` | 完成动画 | `/cmd?k=s` | 回到空闲 |
+| `SessionEnd` | 待机动画 | `/cmd?k=w` | 收尾 |
 
 > `PreToolUse` 想显示工具名有个约束：`/char` 一次只收一个字符，逐字发送会打成串请求。建议**仅在工具名变化时**发送，且只发前几个字符；或者后续在固件里加一个 `/text?s=...` 批量接口（更干净）。
 
@@ -464,7 +461,7 @@ hook 脚本把 §5.2 里的 HTTP 请求换成一次 BLE 写入即可；**同样�
 | 阶段 | 内容 | 验证 |
 |---|---|---|
 | A1 | 固件加 STA + mDNS，串口打印获得的 IP | 路由器后台能看到设备；`ping clawd-mochi.local` 通 |
-| A2 | 宿主机手动 `curl http://clawd-mochi.local/cmd?k=s` | 屏幕切眯眼 |
+| A2 | 宿主机手动 `curl http://clawd-mochi.local/cmd?k=s` | 屏幕播 `done` 动画 |
 | A3 | 写 `mochi-hook.js`，手动喂 JSON 测试 | `echo '{}' \| node mochi-hook.js SessionStart` |
 | A4 | 注册到 settings.json，实际跑一次会话 | 屏幕随 CC 状态变化 |
 | A5 | （可选）固件加 `/text?s=...` 批量文本接口，让终端显示更顺 | 工具名整串显示 |

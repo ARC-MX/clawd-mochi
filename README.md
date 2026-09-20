@@ -29,8 +29,9 @@ Support the project on Instagram: [![Instagram](https://img.shields.io/badge/Ins
 
 Clawd Mochi sits on your desk and shows animated expressions on a small color display. You control it from any phone or browser by connecting to its built-in WiFi hotspot:
 
-- **Normal eyes** — pixel-art square eyes with wiggle and blink animations
-- **Squish eyes** — `> <` happy squint with open/close animation
+- **Themed animations** — the pet's expressions are animated stickers played from
+  the filesystem, so a theme can be swapped without reflashing the firmware
+  (`idle`, `thinking`, `working`, `done`, `error`, `sleep`, and more)
 - **Claude Code** — displays "Claude Code" with an interactive terminal
 - **Canvas** — draw anything on the display from your phone in real time
 
@@ -131,8 +132,8 @@ You should see the web controller:
 
 | Button / control   | What it does                                    |
 | ------------------ | ----------------------------------------------- |
-| Normal eyes        | Plays wiggle + blink animation                  |
-| Squish eyes        | Plays open/close animation                      |
+| Idle               | Plays the theme's resting animation             |
+| Done               | Plays the theme's finished animation            |
 | Claude Code        | Shows code display, opens terminal              |
 | Canvas             | Enter drawing mode — draw on display from phone |
 | Speed slider       | Controls animation speed (slow / normal / fast) |
@@ -194,17 +195,26 @@ You can also download the models from MakerWorld: [https://makerworld.com/en/mod
 
 ## Customisation
 
-### Eye size and position
+### Theme (animations)
 
-Edit these constants near the top of `clawd_mochi.ino`:
+The pet's expressions come from `esp-idf/data/theme/`: a plain-text manifest maps
+state names to `.caf` animation files, so you can change what a state looks like
+(or add one) by editing files on the device — no firmware change.
 
-```cpp
-#define EYE_W   30    // eye width in pixels
-#define EYE_H   60    // eye height in pixels
-#define EYE_GAP 120   // gap between eyes
-#define EYE_OX  0     // horizontal offset
-#define EYE_OY  40    // vertical offset upward
 ```
+esp-idf/data/theme/manifest.txt   # state=file, one per line
+esp-idf/data/theme/*.caf          # converted from GIF by tools/gif2caf.py
+```
+
+Convert a new set of stickers with:
+
+```bash
+python3 tools/gif2caf.py ../stickers/240/clawd -o esp-idf/data/theme/
+python3 tools/verify_caf.py        # confirms every frame decodes losslessly
+```
+
+Playback rate is `ANIM_FPS` in `main/anim.cpp` (15 fps by default, matching how
+the stickers are authored). The surrounding background colour follows `bg#RRGGBB`.
 
 ### Logo animation duration
 
