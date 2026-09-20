@@ -108,6 +108,32 @@ static uint16_t animSurround = 0xFFFF;
 static bool     busy         = false;
 static bool     backlightOn  = true;
 
+// ── Sleeping when nothing is driving the pet ──────────────────
+// The pet only moves when something drives it — Claude Code hooks over serial
+// or BLE, a web command, the CLI. With no agent running nothing arrives, so it
+// would otherwise sit on `idle` indefinitely. After this many seconds of quiet
+// it drops to the theme's `sleep` state instead.
+//
+// Any command restarts the timer, but only a *state* request wakes it: a
+// status line or a brightness change should not rouse it from a nap.
+#define SLEEP_AFTER_DEFAULT 120
+#define SLEEP_AFTER_MAX     86400        // clamp, so *=1000 cannot overflow
+static uint16_t sleepAfterSec = SLEEP_AFTER_DEFAULT;   // 0 disables
+static TickType_t lastActivity = 0;
+static bool     autoAsleep    = false;  // we napped it, the host did not ask
+
+// Called by every command path. Cheap enough to call unconditionally.
+static void noteActivity() { lastActivity = xTaskGetTickCount(); }
+
+// The one way to change state: cancels any auto-sleep and restarts the timer,
+// then hands off to the player. Explicitly asking for a state is itself
+// activity, so callers need not call noteActivity() as well.
+static void requestState(const char* state) {
+  autoAsleep = false;
+  noteActivity();
+  animPlayState(state);
+}
+
 // Backlight PWM: 8-bit duty, duty==0 → off.
 #define BL_DUTY_MIN  64    // ~25% — dim but clearly visible
 #define BL_DUTY_FULL 255   // 100% (never used by default)
@@ -563,22 +589,23 @@ static esp_err_t routeRoot(httpd_req_t* req) {
 // driven entirely by themed animations, so they play a state instead. That keeps
 // the existing hooks, scripts and web UI working unchanged.
 static void applyCommand(char c) {
+  noteActivity();
   if (termMode) {
     if (c == 'q') { termMode = false; drawCodeView(); }
     return;
   }
   switch (c) {
-    case 'w': currentView = VIEW_ANIM; stateRequested = true; animPlayState("idle"); break;
-    case 's': currentView = VIEW_ANIM; stateRequested = true; animPlayState("done"); break;
+    case 'w': currentView = VIEW_ANIM; stateRequested = true; requestState("idle"); break;
+    case 's': currentView = VIEW_ANIM; stateRequested = true; requestState("done"); break;
     case 'd':
-      animPlayState("");                  // stop the player before painting over it
+      requestState("");                   // stop the player before painting over it
       currentView = VIEW_CODE; drawCodeView();
       termMode = true; termClear(); termFullRedraw(); break;
     case 'a':
-      animPlayState("");
+      requestState("");
       currentView = VIEW_ANIM;
       animLogoReveal();
-      animPlayState("idle");
+      requestState("idle");
       break;
   }
 }
@@ -595,6 +622,7 @@ static esp_err_t routeCmd(httpd_req_t* req) {
 }
 
 static esp_err_t routeChar(httpd_req_t* req) {
+  noteActivity();
   if (!termMode) { sendJson(req, "{\"ok\":1}"); return ESP_OK; }
   char c[8] = {0};
   if (getQueryArg(req, "c", c, sizeof(c)) && c[0] != 0) {
@@ -608,6 +636,7 @@ static esp_err_t routeChar(httpd_req_t* req) {
 }
 
 static esp_err_t routeSpeed(httpd_req_t* req) {
+  noteActivity();
   char v[8] = {0};
   if (getQueryArg(req, "v", v, sizeof(v))) {
     int s = atoi(v);
@@ -620,6 +649,7 @@ static esp_err_t routeSpeed(httpd_req_t* req) {
 }
 
 static esp_err_t routeRedraw(httpd_req_t* req) {
+  noteActivity();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     animSurround = hexToRgb565(bg);
@@ -636,6 +666,7 @@ static esp_err_t routeRedraw(httpd_req_t* req) {
 }
 
 static esp_err_t routeCanvas(httpd_req_t* req) {
+  noteActivity();
   char on[8] = {0};
   if (getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0) {
     currentView = VIEW_DRAW;
@@ -646,6 +677,7 @@ static esp_err_t routeCanvas(httpd_req_t* req) {
 }
 
 static esp_err_t routeDrawClear(httpd_req_t* req) {
+  noteActivity();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     drawBgColor = hexToRgb565(bg);
@@ -660,6 +692,7 @@ static esp_err_t routeDrawClear(httpd_req_t* req) {
 }
 
 static esp_err_t routeDrawStroke(httpd_req_t* req) {
+  noteActivity();
   char pen[16] = {0};
   char pts[512] = {0};
   if (!getQueryArg(req, "pen", pen, sizeof(pen)) ||
@@ -695,6 +728,7 @@ static esp_err_t routeDrawStroke(httpd_req_t* req) {
 }
 
 static esp_err_t routeBacklight(httpd_req_t* req) {
+  noteActivity();
   char on[8] = {0};
   bool enable = getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0;
   setBacklight(enable);
@@ -854,6 +888,11 @@ static void serialHandleLine(char* line) {
   while (n && (line[n - 1] == ' ' || line[n - 1] == '\t')) line[--n] = 0;
   if (n == 0) return;
 
+  // Every serial/BLE command counts as activity, so the pet does not nod off
+  // while someone is talking to it. Note this is *before* the dispatch below,
+  // which is also reached by the Claude Code hooks.
+  noteActivity();
+
   // Single-character view commands — same set as the web UI's /cmd.
   if (n == 1) { applyCommand(line[0]); serialReply("ok"); return; }
 
@@ -888,9 +927,9 @@ static void serialHandleLine(char* line) {
   }
 
   if (strcmp(line, "logo") == 0) {
-    animPlayState(""); currentView = VIEW_ANIM;
+    requestState(""); currentView = VIEW_ANIM;
     animLogoReveal();
-    animPlayState("idle");
+    requestState("idle");
     serialReply("ok"); return;
   }
   if (strcmp(line, "canvas") == 0) {
@@ -951,11 +990,32 @@ static void serialHandleLine(char* line) {
 
     stateRequested = true;
     if (*arg == 0 || strcmp(arg, "off") == 0) {
-      animPlayState("");
+      requestState("");
       serialReply("ok");
       return;
     }
-    animPlayState(arg);
+    requestState(arg);
+    serialReply("ok");
+    return;
+  }
+
+  // sleepafter <seconds> — how long the pet waits with nothing driving it
+  // before napping. 0 disables. Reports the current value with no argument.
+  if (strncmp(line, "sleepafter", 10) == 0 &&
+      (line[10] == 0 || line[10] == ' ')) {
+    char* arg = line + 10;
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%u", (unsigned)sleepAfterSec);
+      serialReply(buf);
+      return;
+    }
+    long v = strtol(arg, nullptr, 10);
+    if (v < 0) v = 0;
+    if (v > SLEEP_AFTER_MAX) v = SLEEP_AFTER_MAX;
+    sleepAfterSec = (uint16_t)v;
+    noteActivity();                    // start the new interval from now
     serialReply("ok");
     return;
   }
@@ -1103,8 +1163,13 @@ extern "C" void app_main() {
   bool switchedToAnim = false;
 #else
   currentView = VIEW_ANIM;
-  animPlayState("idle");
+  requestState("idle");
 #endif
+
+  // Start the nap timer from the moment the pet is actually on screen. A hook
+  // that fired during boot may have already set a state, in which case the
+  // branch above was skipped — so this cannot be left to requestState().
+  noteActivity();
 
   while (true) {
 #if ENABLE_WIFI
@@ -1112,10 +1177,18 @@ extern "C" void app_main() {
       switchedToAnim = true;
       if (!stateRequested) {            // don't clobber an explicit request
         currentView = VIEW_ANIM;
-        animPlayState("idle");
+        requestState("idle");
       }
     }
 #endif
+    // Nothing has driven the pet for a while: no agent is running, or it is
+    // sitting on a prompt. Nap until something asks for a state again.
+    if (!autoAsleep && currentView == VIEW_ANIM && sleepAfterSec > 0 &&
+        (xTaskGetTickCount() - lastActivity) >=
+            pdMS_TO_TICKS((uint32_t)sleepAfterSec * 1000)) {
+      autoAsleep = true;
+      animPlayState("sleep");
+    }
     delayMs(200);
   }
 }
