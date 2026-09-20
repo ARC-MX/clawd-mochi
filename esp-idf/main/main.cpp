@@ -40,6 +40,7 @@
 #include "logo_data.h"
 #include "esp_littlefs.h"
 #include "ble_cli.h"
+#include "anim.h"
 
 static const char* TAG = "clawd_mochi";
 
@@ -51,22 +52,36 @@ static const char* TAG = "clawd_mochi";
 #define TFT_MOSI 21
 #define TFT_SCLK 18
 
-static Display tft(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK);
+// Non-static: anim.cpp draws through this same instance.
+Display tft(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK);
 
 // ── WiFi ──────────────────────────────────────────────────────
 static const char* AP_SSID = "ClaWD-Mochi";
 static const char* AP_PASS = "clawd1234";
 
+// ── Radio ─────────────────────────────────────────────────────
+// Historical note, because this bit the project hard: the first boot after a
+// PHY config change (or an NVS wipe) runs a *full* RF calibration, and its
+// inrush used to sag the 3V3 rail below the BOD threshold — already the most
+// permissive setting, CONFIG_ESP_BROWNOUT_DET_LVL_SEL_0 ~= 2.43 V — so the chip
+// boot-looped. That is self-locking: the calibration is only cached in NVS
+// (CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE) once it *completes*, so a failed
+// attempt guarantees the next boot pays the full-calibration current again.
+//
+// The fix was a stiffer supply (see the brownout notes in the repo history). The
+// workaround that unblocked development — bringing the radio up before the
+// backlight, while the panel was dark — has since been removed, because with
+// adequate power the full calibration survives with the panel lit. Verified by
+// wiping NVS and booting: full calibration with the backlight on, clean.
+//
+// If this ever boot-loops again on a weak supply, moving the wifiInitSoftAP()
+// call ahead of backlightInit() in app_main() restores the extra headroom.
+#define ENABLE_WIFI 1
+#define ENABLE_BLE  1
+
 // ── Display ───────────────────────────────────────────────────
 #define DISP_W 240
 #define DISP_H 240
-
-// ── Eye constants (shared by both eye views) ──────────────────
-#define EYE_W   30
-#define EYE_H   60
-#define EYE_GAP 120
-#define EYE_OX  0
-#define EYE_OY  40
 
 // ── Colours ───────────────────────────────────────────────────
 static uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
@@ -74,12 +89,20 @@ static uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
 #define C_BLACK ST77XX_BLACK
 
 // ── State ─────────────────────────────────────────────────────
-#define VIEW_EYES_NORMAL 0
-#define VIEW_EYES_SQUISH 1
-#define VIEW_CODE        2
-#define VIEW_DRAW        3
+// The pet's expressions are themed animations (see anim.cpp); these views are
+// the screens that are not animations.
+#define VIEW_ANIM 0        // the animation player owns the panel
+#define VIEW_CODE 1
+#define VIEW_DRAW 2
 
-static uint8_t  currentView  = VIEW_EYES_NORMAL;
+static uint8_t  currentView  = VIEW_ANIM;
+// Set once anything asks for a specific state. The boot sequence switches to
+// `idle` after the WiFi screen, and must not clobber an explicit request (a hook
+// fires within seconds of boot).
+static bool     stateRequested = false;
+// Colour the screen is cleared to before an animation starts, and the canvas
+// background. White matches the theme's own background.
+static uint16_t animSurround = 0xFFFF;
 static bool     busy         = false;
 static bool     backlightOn  = true;
 
@@ -200,15 +223,9 @@ static void drawLogoFilled(uint16_t bg, uint16_t fg) {
 //  VIEWS
 // ═════════════════════════════════════════════════════════════
 
-static inline int16_t eyeLX(int16_t ox) {
-  return (DISP_W - (EYE_W * 2 + EYE_GAP)) / 2 + EYE_OX + ox;
-}
-static inline int16_t eyeRX(int16_t ox) { return eyeLX(ox) + EYE_W + EYE_GAP; }
-static inline int16_t eyeY()            { return (DISP_H - EYE_H) / 2 - EYE_OY; }
-static inline int16_t eyeCY()           { return eyeY() + EYE_H / 2; }
-
-// Draws the status line centred under the eyes, wrapping onto extra lines if
-// it is wider than the panel. Fixed buffer — no dynamic allocation.
+// Draws the status line centred near the bottom of the panel, wrapping onto
+// extra lines if it is wider than the panel. Fixed buffer — no dynamic
+// allocation.
 static void drawStatusText() {
   if (statusText[0] == 0) return;
 
@@ -222,7 +239,9 @@ static void drawStatusText() {
   const int16_t startY = DISP_H - lines * lineH - 8;
 
   tft.setTextSize(statusSize);
-  tft.setTextColor(statusColor ? statusColor : C_BLACK);
+  // White by default: the only static view left is the dark Claude Code screen,
+  // where the old black default would be invisible.
+  tft.setTextColor(statusColor ? statusColor : C_WHITE);
 
   char line[STATUS_MAX + 1];
   for (int16_t i = 0; i < lines; i++) {
@@ -236,49 +255,6 @@ static void drawStatusText() {
     tft.setCursor(x, startY + i * lineH);
     tft.print(line);
   }
-}
-
-static void drawNormalEyes(int16_t ox = 0, bool blink = false) {
-  tft.fillScreen(animBgColor);
-  const int16_t lx = eyeLX(ox), rx = eyeRX(ox), ey = eyeY();
-  if (!blink) {
-    tft.fillRect(lx, ey, EYE_W, EYE_H, C_BLACK);
-    tft.fillRect(rx, ey, EYE_W, EYE_H, C_BLACK);
-  } else {
-    tft.fillRect(lx, ey + EYE_H / 2 - 3, EYE_W, 6, C_BLACK);
-    tft.fillRect(rx, ey + EYE_H / 2 - 3, EYE_W, 6, C_BLACK);
-  }
-  drawStatusText();
-}
-
-static void drawChevron(int16_t cx, int16_t cy, int16_t arm, int16_t reach,
-                        uint8_t thk, bool rightFacing, uint16_t col) {
-  for (int8_t t = -(int8_t)thk; t <= (int8_t)thk; t++) {
-    if (rightFacing) {
-      tft.drawLine(cx - reach / 2, cy - arm + t, cx + reach / 2, cy + t, col);
-      tft.drawLine(cx + reach / 2, cy + t, cx - reach / 2, cy + arm + t, col);
-    } else {
-      tft.drawLine(cx + reach / 2, cy - arm + t, cx - reach / 2, cy + t, col);
-      tft.drawLine(cx - reach / 2, cy + t, cx + reach / 2, cy + arm + t, col);
-    }
-  }
-}
-
-static void drawSquishEyes(bool closed = false) {
-  tft.fillScreen(animBgColor);
-  const int16_t lx = eyeLX(0), rx = eyeRX(0), cy = eyeCY();
-  const int16_t arm   = EYE_H / 2;
-  const int16_t reach = EYE_W / 2;
-  const int16_t lcx   = lx + EYE_W / 2;
-  const int16_t rcx   = rx + EYE_W / 2;
-  if (!closed) {
-    drawChevron(lcx, cy, arm, reach, 10, true,  C_BLACK);
-    drawChevron(rcx, cy, arm, reach, 10, false, C_BLACK);
-  } else {
-    tft.fillRect(lx, cy - 5, EYE_W, 10, C_BLACK);
-    tft.fillRect(rx, cy - 5, EYE_W, 10, C_BLACK);
-  }
-  drawStatusText();
 }
 
 static void drawCodeView() {
@@ -295,6 +271,7 @@ static void drawCodeView() {
   tft.setCursor((DISP_W - 96) / 2,  DISP_H / 2 + 8);
   tft.print("Code");
   tft.fillRect((DISP_W - 96) / 2, DISP_H / 2 + 52, 96, 3, C_ORANGE);
+  drawStatusText();
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -409,27 +386,6 @@ static void termAddChar(char c) {
 //  ANIMATIONS
 // ═════════════════════════════════════════════════════════════
 
-static void animNormalEyes() {
-  busy = true;
-  const int16_t offs[] = {-16, 16, -16, 16, 0};
-  for (uint8_t i = 0; i < 5; i++) { drawNormalEyes(offs[i]); delayMs(speedMs(80)); }
-  drawNormalEyes(0, true);  delayMs(speedMs(100));
-  drawNormalEyes(0, false); delayMs(speedMs(70));
-  drawNormalEyes(0, true);  delayMs(speedMs(70));
-  drawNormalEyes(0, false);
-  busy = false;
-}
-
-static void animSquishEyes() {
-  busy = true;
-  for (uint8_t i = 0; i < 3; i++) {
-    drawSquishEyes(false); delayMs(speedMs(160));
-    drawSquishEyes(true);  delayMs(speedMs(100));
-  }
-  drawSquishEyes(false);
-  busy = false;
-}
-
 static void animLogoReveal() {
   busy = true;
   tft.fillScreen(animBgColor);
@@ -493,20 +449,27 @@ static esp_err_t routeRoot(httpd_req_t* req) {
 
 // Single-character view commands. Shared by the HTTP /cmd route and the serial
 // CLI so the two paths can never drift apart.
+//
+// 'w' and 's' used to select the two code-drawn eye expressions; the pet is now
+// driven entirely by themed animations, so they play a state instead. That keeps
+// the existing hooks, scripts and web UI working unchanged.
 static void applyCommand(char c) {
   if (termMode) {
     if (c == 'q') { termMode = false; drawCodeView(); }
     return;
   }
   switch (c) {
-    case 'w': currentView = VIEW_EYES_NORMAL; animNormalEyes(); break;
-    case 's': currentView = VIEW_EYES_SQUISH; animSquishEyes(); break;
+    case 'w': currentView = VIEW_ANIM; stateRequested = true; animPlayState("idle"); break;
+    case 's': currentView = VIEW_ANIM; stateRequested = true; animPlayState("done"); break;
     case 'd':
+      animPlayState("");                  // stop the player before painting over it
       currentView = VIEW_CODE; drawCodeView();
       termMode = true; termClear(); termFullRedraw(); break;
     case 'a':
-      currentView = VIEW_EYES_NORMAL;
+      animPlayState("");
+      currentView = VIEW_ANIM;
       animLogoReveal();
+      animPlayState("idle");
       break;
   }
 }
@@ -550,14 +513,14 @@ static esp_err_t routeSpeed(httpd_req_t* req) {
 static esp_err_t routeRedraw(httpd_req_t* req) {
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
-    animBgColor = hexToRgb565(bg);
-    drawBgColor = animBgColor;
+    animSurround = hexToRgb565(bg);
+    drawBgColor = animSurround;
+    animSetBackground(animSurround);
   }
   switch (currentView) {
-    case VIEW_EYES_NORMAL: drawNormalEyes(); break;
-    case VIEW_EYES_SQUISH: drawSquishEyes(); break;
-    case VIEW_CODE:        drawCodeView();   break;
-    case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
+    case VIEW_CODE: drawCodeView();   break;
+    case VIEW_DRAW: tft.fillScreen(drawBgColor); break;
+    default: break;   // the animation player owns the panel
   }
   sendJson(req, "{\"ok\":1}");
   return ESP_OK;
@@ -577,10 +540,8 @@ static esp_err_t routeDrawClear(httpd_req_t* req) {
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     drawBgColor = hexToRgb565(bg);
-    animBgColor = drawBgColor;
   } else {
     drawBgColor = hexToRgb565("#aa4818");
-    animBgColor = drawBgColor;
   }
   currentView = VIEW_DRAW;
   termMode = false;
@@ -798,13 +759,13 @@ static void serialHandleLine(char* line) {
   }
 
   if (strncmp(line, "bg", 2) == 0) {         // bg#RRGGBB
-    animBgColor = hexToRgb565(line + 2);
-    drawBgColor = animBgColor;
+    animSurround = hexToRgb565(line + 2);
+    drawBgColor = animSurround;
+    animSetBackground(animSurround);
     switch (currentView) {
-      case VIEW_EYES_NORMAL: drawNormalEyes();            break;
-      case VIEW_EYES_SQUISH: drawSquishEyes();            break;
-      case VIEW_CODE:        drawCodeView();              break;
-      case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
+      case VIEW_CODE: drawCodeView();              break;
+      case VIEW_DRAW: tft.fillScreen(drawBgColor); break;
+      default: break;   // the animation player owns the panel
     }
     serialReply("ok");
     return;
@@ -818,7 +779,10 @@ static void serialHandleLine(char* line) {
   }
 
   if (strcmp(line, "logo") == 0) {
-    currentView = VIEW_EYES_NORMAL; animLogoReveal(); serialReply("ok"); return;
+    animPlayState(""); currentView = VIEW_ANIM;
+    animLogoReveal();
+    animPlayState("idle");
+    serialReply("ok"); return;
   }
   if (strcmp(line, "canvas") == 0) {
     currentView = VIEW_DRAW; termMode = false;
@@ -855,8 +819,34 @@ static void serialHandleLine(char* line) {
     strncpy(statusText, p, STATUS_MAX - 1);
     statusText[STATUS_MAX - 1] = 0;
 
-    if (currentView == VIEW_EYES_NORMAL)      drawNormalEyes();
-    else if (currentView == VIEW_EYES_SQUISH) drawSquishEyes();
+    // The animations repaint their own region every frame, so the status line
+    // can only be shown on the static views.
+    if (currentView == VIEW_CODE)      drawCodeView();
+    else if (currentView == VIEW_DRAW) tft.fillScreen(drawBgColor);
+    serialReply("ok");
+    return;
+  }
+
+  // state <name> — play a themed clawd animation; "state off" returns to the
+  // static views. "states" lists what the mounted theme provides.
+  if (strcmp(line, "states") == 0) {
+    char list[256];
+    animListStates(list, sizeof(list));
+    serialReply(list[0] ? list : "(theme has no manifest)");
+    return;
+  }
+
+  if (strncmp(line, "state", 5) == 0 && (line[5] == 0 || line[5] == ' ')) {
+    char* arg = line + 5;
+    while (*arg == ' ') arg++;
+
+    stateRequested = true;
+    if (*arg == 0 || strcmp(arg, "off") == 0) {
+      animPlayState("");
+      serialReply("ok");
+      return;
+    }
+    animPlayState(arg);
     serialReply("ok");
     return;
   }
@@ -925,7 +915,9 @@ static void serialInit() {
   ESP_LOGD(TAG, "UART0 driver install -> %s", esp_err_to_name(err));
   xTaskCreate(serialTask, "serial_cli", 4096, nullptr, 5, nullptr);
 
+#if ENABLE_BLE
   bleCliInit(s_cmdQueue);
+#endif
 }
 
 extern "C" void app_main() {
@@ -957,7 +949,9 @@ extern "C" void app_main() {
 
   animLogoReveal();
 
+#if ENABLE_WIFI
   wifiInitSoftAP();
+  ESP_LOGI(TAG, "boot: wifi up");
 
   tft.fillScreen(C_DARKBG);
   tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
@@ -983,19 +977,33 @@ extern "C" void app_main() {
   tft.print("press any button to start");
 
   startWebServer();
-  serialInit();
+#endif
 
-  // Leave the WiFi info screen up for a few seconds, then idle on the eyes.
+  serialInit();             // also starts BLE, when ENABLE_BLE
+  animInit();
+  animSetBackground(animSurround);
+
+#if ENABLE_WIFI
+  // Leave the WiFi info screen up for a few seconds, then start the idle
+  // animation — unless something already asked for a specific state.
   // Timed non-blocking so the serial/web handlers keep running throughout.
   const TickType_t wifiScreenUntil = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
-  bool switchedToEyes = false;
+  bool switchedToAnim = false;
+#else
+  currentView = VIEW_ANIM;
+  animPlayState("idle");
+#endif
 
   while (true) {
-    if (!switchedToEyes && xTaskGetTickCount() >= wifiScreenUntil) {
-      switchedToEyes = true;
-      currentView = VIEW_EYES_NORMAL;
-      animNormalEyes();
+#if ENABLE_WIFI
+    if (!switchedToAnim && xTaskGetTickCount() >= wifiScreenUntil) {
+      switchedToAnim = true;
+      if (!stateRequested) {            // don't clobber an explicit request
+        currentView = VIEW_ANIM;
+        animPlayState("idle");
+      }
     }
+#endif
     delayMs(200);
   }
 }

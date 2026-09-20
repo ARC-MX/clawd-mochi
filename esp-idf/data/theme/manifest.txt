@@ -1,0 +1,28 @@
+# Clawd Mochi theme — maps a device state to an animation file.
+#
+# Plain text on purpose: a theme can be edited on the device (or swapped
+# wholesale) without rebuilding the firmware, and the parser stays trivial.
+# Format: <state>=<file.caf>   ·   '#' starts a comment
+#
+# These are the states the Claude Code hooks drive:
+#   idle          nothing happening
+#   thinking      a prompt was submitted
+#   working       a tool is running
+#   done          the turn finished
+#   error         something failed
+#   sleep         idle for a long time
+#
+# The rest are spare art shipped with the theme; point any state at them by
+# editing this file.
+
+idle=clawd-idle.caf
+thinking=clawd-thinking.caf
+working=clawd-typing.caf
+done=clawd-happy.caf
+error=clawd-error.caf
+sleep=clawd-sleeping.caf
+
+juggling=clawd-juggling.caf
+notification=clawd-notification.caf
+sweeping=clawd-sweeping.caf
+carrying=clawd-carrying.caf
