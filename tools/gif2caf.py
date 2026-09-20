@@ -94,7 +94,7 @@ def dist565(a, b):
     return (ar - br) ** 2 * 4 + (ag - bg) ** 2 + (ab - bb) ** 2 * 4
 
 
-def load_frames(path, bg565=0xFFFF):
+def load_frames(path, bg565=0xFFFF, stride=1):
     """Return (index-byte arrays, delays, size, palette).
 
     Reads each frame through the GIF's OWN palette (`seek` + `convert("P")`)
@@ -124,13 +124,21 @@ def load_frames(path, bg565=0xFFFF):
     raw_frames = []       # per frame: (index bytes, per-frame rgb565 palette)
     delays = []
     union = {}            # rgb565 -> colour list position (excluding the field)
+    pending_ms = 0        # time folded in from frames dropped by `stride`
     for i in range(im.n_frames):
         im.seek(i)
         p = im.convert("P")
         pal = p.getpalette()
         if not pal:
             continue
-        delays.append(im.info.get("duration") or 70)
+        dur = im.info.get("duration") or 70
+        if stride > 1 and i % stride:
+            # Keep the timeline honest: a dropped frame's duration is added to
+            # the next kept one, so the animation still takes as long.
+            pending_ms += dur
+            continue
+        delays.append(dur + pending_ms)
+        pending_ms = 0
         pal565 = [rgb565(pal[k * 3], pal[k * 3 + 1], pal[k * 3 + 2])
                   for k in range(256)]
         idx = p.tobytes()
@@ -290,8 +298,8 @@ def compose(idx_frames, size, palette, margin):
     return out_frames, size, (ox, oy, dw, dh)
 
 
-def convert(src, dst, margin=12, fit=True, bg565=0xFFFF):
-    idx_frames, delays, size, palette = load_frames(src, bg565)
+def convert(src, dst, margin=12, fit=True, bg565=0xFFFF, stride=1):
+    idx_frames, delays, size, palette = load_frames(src, bg565, stride)
     cw, ch = size
     if fit:
         idx_frames, size, rect = compose(idx_frames, size, palette, margin)
@@ -318,6 +326,10 @@ def main():
     ap.add_argument("-o", "--out", required=True, help="output directory")
     ap.add_argument("--margin", type=int, default=12,
                     help="border kept around the artwork (default 12)")
+    ap.add_argument("--stride", type=int, default=1,
+                    help="keep every Nth frame (default 1). Dropped frames' "
+                         "durations fold into the next kept frame, so the "
+                         "animation still takes as long")
     ap.add_argument("--bg", default="ffffff",
                     help="field colour behind the artwork, as RRGGBB "
                          "(default white); must match the theme's surround")
@@ -342,7 +354,7 @@ def main():
     for name in gifs:
         src = os.path.join(args.input, name)
         dst = os.path.join(args.out, os.path.splitext(name)[0] + ".caf")
-        size, frames = convert(src, dst, args.margin, not args.no_fit, bg565)
+        size, frames = convert(src, dst, args.margin, not args.no_fit, bg565, args.stride)
         total += size
         orig = os.path.getsize(src)
         print(f"  {name:32} {frames:>3} frames  {orig/1024:>6.0f}K -> {size/1024:>5.0f}K")

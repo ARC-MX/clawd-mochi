@@ -40,15 +40,18 @@ static const char* TAG = "anim";
 #define FILE_NAME_MAX 64
 #define BAND_ROWS     8      // rows per panel transfer (matches FILL_PIXELS)
 
-// Playback rate. These sticker GIFs are authored at ~15 fps (66 ms/frame), so
-// that is the rate at which the motion looks as intended — playing them faster
-// just runs the animation fast. It also leaves real headroom: a full-bbox push
-// measures 39-46 ms on this board, well inside the 66 ms budget, so no frame is
-// ever dropped.
+// Pacing comes from the pack, not from a constant here. Each .caf carries a
+// per-frame duration (the converter writes the GIF's own delay, and folds in
+// the time of any frames dropped by --stride), so a theme authored at 8 fps and
+// one authored at 17 fps each play at the rate they were drawn for. Picking one
+// rate for every theme is what made calico run ~1.8x fast.
 //
-// Settable at runtime through animSetSpeed(); the default is the authored rate.
-#define ANIM_FPS_NORMAL 15
-static volatile uint16_t s_frameMs = 1000 / ANIM_FPS_NORMAL;
+// animSetSpeed() scales that authored timing rather than replacing it: 2 is the
+// pack's own rate, 1 is 1.5x slower, 3 is 0.67x.
+#define ANIM_DELAY_MIN_MS 10        // guard against a zero/absurd table entry
+#define ANIM_DELAY_MAX_MS 500
+static volatile uint16_t s_speedNum = 1;
+static volatile uint16_t s_speedDen = 1;
 
 // Log the achieved frame rate every N frames. Handy when tuning ANIM_FPS or the
 // .caf encoding against this board's SPI ceiling; off by default to keep the
@@ -281,6 +284,10 @@ static bool playOnce(const char* state, uint32_t gen) {
   for (int i = 0; i < 256; i++) palette[i] = rd16(pal + i * 2);
 
   uint8_t table[4];
+  uint8_t delayBuf[2];
+  // The delay table follows the offset table, both sized by the frame count.
+  const long delayTable = CAF_TABLE_OFF + (long)frames * 4;
+
   for (uint16_t f = 0; f < frames; f++) {
     if (s_gen != gen) {                 // another state was requested
       fclose(fd);
@@ -289,19 +296,29 @@ static bool playOnce(const char* state, uint32_t gen) {
 
     const int64_t t0 = esp_timer_get_time();
 
+    // Seek per frame rather than reading the offset table straight through: the
+    // duration lookup below would otherwise have to rewind past it anyway.
+    if (fseek(fd, CAF_TABLE_OFF + (long)f * 4, SEEK_SET) != 0) break;
     if (fread(table, 1, 4, fd) != 4) break;
     const uint32_t offset = rd32(table);
 
+    if (fseek(fd, delayTable + (long)f * 2, SEEK_SET) != 0) break;
+    if (fread(delayBuf, 1, 2, fd) != 2) break;
+    uint16_t authoredMs = rd16(delayBuf);
+
     if (!renderFrame(fd, offset, x0, y0, w, h, palette)) break;
 
-    // Re-seek to the next offset entry for the following iteration.
-    fseek(fd, CAF_TABLE_OFF + (long)f * 4 + 4, SEEK_SET);
+    // The pack's own timing, scaled by the speed setting. Rendering is now much
+    // cheaper than the SPI-bound full frame, so this wait (not the bus) sets the
+    // frame rate; subtract the work already done so a slow frame does not add
+    // to the interval.
+    if (authoredMs < ANIM_DELAY_MIN_MS) authoredMs = ANIM_DELAY_MIN_MS;
+    if (authoredMs > ANIM_DELAY_MAX_MS) authoredMs = ANIM_DELAY_MAX_MS;
 
-    // Pace to the current frame rate. Rendering is now much cheaper than the
-    // SPI-bound full frame, so this wait (not the bus) sets the frame rate.
-    // Subtract the work already done so a slow frame does not add to it.
     const int64_t renderUs = esp_timer_get_time() - t0;
-    const int waitMs = (int)s_frameMs - (int)(renderUs / 1000);
+    uint32_t wantMs = (uint32_t)authoredMs * s_speedNum / s_speedDen;
+    if (wantMs < ANIM_DELAY_MIN_MS) wantMs = ANIM_DELAY_MIN_MS;
+    const int waitMs = (int)wantMs - (int)(renderUs / 1000);
     if (waitMs > 0) vTaskDelay(pdMS_TO_TICKS(waitMs));
 
 #if ANIM_LOG_FPS
@@ -372,12 +389,12 @@ static void animTask(void* arg) {
 
 void animSetBackground(unsigned short colour) { s_bg = (uint16_t)colour; }
 
-// 1 = slow, 2 = the authored rate, 3 = fast. Anything else falls back to 2.
+// 1 = slow, 2 = the pack's own rate, 3 = fast. Anything else falls back to 2.
 void animSetSpeed(unsigned level) {
   switch (level) {
-    case 1:  s_frameMs = 100; break;                        // ~10 fps
-    case 3:  s_frameMs = 45;  break;                        // ~22 fps
-    default: s_frameMs = 1000 / ANIM_FPS_NORMAL; break;     // ~15 fps
+    case 1:  s_speedNum = 3; s_speedDen = 2; break;   // 1.5x the authored delay
+    case 3:  s_speedNum = 2; s_speedDen = 3; break;   // 0.67x
+    default: s_speedNum = 1; s_speedDen = 1; break;   // as authored
   }
 }
 
