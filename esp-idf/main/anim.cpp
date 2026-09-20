@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -78,6 +79,10 @@ static SemaphoreHandle_t s_lock = nullptr;
 static char              s_state[STATE_MAX] = "";   // requested state, "" = idle
 static uint32_t          s_gen = 0;                 // bumped on every request
 static uint16_t          s_bg = 0xFFFF;             // clear colour (theme white)
+// Magnification the pack asks the device to apply when pushing a frame, from
+// the manifest's `scale=` line. 1 means the .caf is already panel-sized.
+#define ANIM_SCALE_MAX 4        // must stay a divisor of BAND_ROWS
+static uint16_t          s_scale = 1;
 
 #if ANIM_LOG_FPS
 // Playback stats, accumulated across animation loops so short animations are
@@ -119,6 +124,17 @@ static bool manifestLookup(const char* state, char* file, size_t fileLen) {
     char* ve = val + strlen(val);
     while (ve > val && (ve[-1] == '\n' || ve[-1] == '\r' || ve[-1] == ' ')) *--ve = 0;
 
+    // `scale` is the pack's magnification for the device to apply, not a state.
+    // Refresh it on every lookup so a theme swapped in at runtime takes effect
+    // without a reboot.
+    if (strcmp(key, "scale") == 0) {
+      long v = strtol(val, nullptr, 10);
+      if (v < 1) v = 1;
+      if (v > ANIM_SCALE_MAX) v = ANIM_SCALE_MAX;
+      s_scale = (uint16_t)v;
+      continue;
+    }
+
     if (strcmp(key, state) == 0) {
       strncpy(file, val, fileLen - 1);
       file[fileLen - 1] = 0;
@@ -145,6 +161,7 @@ void animListStates(char* out, unsigned outLen) {
     *eq = 0;
     char* e = p + strlen(p);
     while (e > p && (e[-1] == ' ' || e[-1] == '\t')) *--e = 0;
+    if (strcmp(p, "scale") == 0) continue;    // pack config, not a state
 
     unsigned used = strlen(out);
     if (used + strlen(p) + 2 >= outLen) break;
@@ -167,16 +184,33 @@ static uint32_t rd32(const uint8_t* p) {
 // needed anywhere. Bands go through Display's batched streaming path: with a
 // full frame costing ~27 window sets, drawImage565()'s per-call lock and DMA
 // wait would add several milliseconds for nothing.
+// A pack may store its artwork below panel size and ask the device to magnify it
+// on push (the theme manifest's scale= line). That is worth doing for a set
+// drawn small — cloudling's crab is natively 113x114 — because RLE runs stay
+// long only while pixels stay crisp: scaling the art up at conversion time
+// costs bytes as well as sharpness. Magnification here is integer and
+// nearest-neighbour, so a magnified frame is what the converter would have
+// written anyway, minus the file size.
 static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
                         uint16_t w, uint16_t h, const uint16_t* palette) {
   // streamRect() hands each buffer to the DMA engine and returns immediately,
   // so a buffer must not be reused until its transfer completes — hence several.
   static uint16_t band[STREAM_BUFS][240 * BAND_ROWS];
-  const uint32_t bandPixels = (uint32_t)w * BAND_ROWS;
+
+  const uint16_t scale = s_scale ? s_scale : 1;
+  const uint16_t rowsPerBand = (uint16_t)(BAND_ROWS / scale);
+  const uint16_t outW = (uint16_t)(w * scale);
+  const uint32_t bandPixels = (uint32_t)outW * BAND_ROWS;
   const uint32_t totalPixels = (uint32_t)w * h;
 
-  if (bandPixels > 240 * BAND_ROWS) {
-    ESP_LOGW(TAG, "frame width %u too large", w);
+  // Bands are a whole number of output rows, so the scale has to divide
+  // BAND_ROWS; and a band can never exceed the scratch buffer or the panel.
+  if (rowsPerBand == 0 || (BAND_ROWS % scale) || (h % rowsPerBand)) {
+    ESP_LOGW(TAG, "%ux%u at scale %u does not band evenly", w, h, scale);
+    return false;
+  }
+  if (outW > 240 || bandPixels > 240 * BAND_ROWS) {
+    ESP_LOGW(TAG, "frame %ux%u at scale %u does not fit the panel", w, h, scale);
     return false;
   }
   if (fseek(fd, (long)blobOffset, SEEK_SET) != 0) return false;
@@ -188,8 +222,9 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
 
   tft.streamBegin();
 
-  uint32_t done = 0, bandPos = 0, slot = 0;
-  uint16_t bandY = 0;
+  uint32_t done = 0, slot = 0;
+  uint16_t bandIdx = 0, bandEndRow = rowsPerBand;
+  uint16_t sr = 0, sc = 0;
   int remaining = 0;
   uint16_t color = 0;
   bool field = false;         // run is palette index 0 — leave the surround be
@@ -198,8 +233,8 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
   // band with the surround and skip index-0 runs, so the field shows through.
   // That is what makes the background a runtime setting: the colour baked into
   // the file is never actually displayed.
-  uint16_t* next = band[slot];
-  for (uint32_t i = 0; i < bandPixels; i++) next[i] = bg;
+  uint16_t* out = band[slot];
+  for (uint32_t i = 0; i < bandPixels; i++) out[i] = bg;
 
   while (done < totalPixels) {
     if (remaining == 0) {
@@ -214,26 +249,39 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
       if (remaining == 0) continue;
     }
 
-    uint32_t space = bandPixels - bandPos;
-    uint32_t n = (uint32_t)remaining < space ? (uint32_t)remaining : space;
-    if (!field) {
-      for (uint32_t i = 0; i < n; i++) next[bandPos + i] = color;
-    }
+    // Pixel at a time, not run at a time: with scale > 1 each source pixel
+    // becomes a square rather than a single entry, so a run is no longer a
+    // contiguous stretch of the band buffer.
+    while (remaining > 0) {
+      if (sr >= bandEndRow) {
+        tft.streamRect(x0, (uint16_t)(y0 + bandIdx * BAND_ROWS),
+                       outW, BAND_ROWS, out);
+        slot = (slot + 1) % STREAM_BUFS;
+        out = band[slot];
+        for (uint32_t i = 0; i < bandPixels; i++) out[i] = bg;
+        bandIdx++;
+        bandEndRow = (uint16_t)(bandEndRow + rowsPerBand);
+        continue;               // this pixel belongs to the band just started
+      }
 
-    bandPos += n;
-    remaining -= (int)n;
-    done += n;
+      if (!field) {
+        uint16_t* p = out + (uint32_t)((sr - (uint16_t)(bandIdx * rowsPerBand)) * scale)
+                          * outW + (uint32_t)sc * scale;
+        for (uint16_t dy = 0; dy < scale; dy++) {
+          uint16_t* q = p + (uint32_t)dy * outW;
+          for (uint16_t dx = 0; dx < scale; dx++) q[dx] = color;
+        }
+      }
 
-    if (bandPos == bandPixels) {
-      tft.streamRect(x0, y0 + bandY, w, BAND_ROWS, next);
-      slot = (slot + 1) % STREAM_BUFS;
-      bandY = (uint16_t)(bandY + BAND_ROWS);
-      bandPos = 0;
-      next = band[slot];
-      for (uint32_t i = 0; i < bandPixels; i++) next[i] = bg;
+      if (++sc == w) { sc = 0; sr++; }
+      done++;
+      remaining--;
     }
   }
 
+  // The final band is never closed by the loop above — it is only pushed when
+  // the *next* band starts.
+  tft.streamRect(x0, (uint16_t)(y0 + bandIdx * BAND_ROWS), outW, BAND_ROWS, out);
   tft.streamEnd();
   return true;
 }
