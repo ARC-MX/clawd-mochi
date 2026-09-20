@@ -42,6 +42,11 @@ public:
   void fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
                     int16_t x2, int16_t y2, uint16_t color);
 
+  // Blit a raw RGB565 bitmap. The data is little-endian, matching both the
+  // panel's configured RAMCTRL endianness and the serial "img" wire format.
+  void drawImage565(int16_t x, int16_t y, int16_t w, int16_t h,
+                    const uint16_t* data);
+
   // text
   void setCursor(int16_t x, int16_t y);
   void setTextColor(uint16_t c) { _textcolor = _textbg = c; }

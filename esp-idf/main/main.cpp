@@ -33,6 +33,7 @@
 
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "driver/uart.h"
 #include "esp_log.h"
 
 #include "display.h"
@@ -120,6 +121,12 @@ static uint8_t  animSpeed    = 1;
 static uint16_t animBgColor  = 0;
 static uint16_t drawBgColor  = 0;
 
+// Status line drawn under the eyes (set over serial / HTTP).
+#define STATUS_MAX 96
+static char     statusText[STATUS_MAX] = "";
+static uint8_t  statusSize  = 2;
+static uint16_t statusColor = 0;   // 0 = fall back to C_BLACK
+
 // ── Terminal ──────────────────────────────────────────────────
 #define TERM_COLS      15
 #define TERM_ROWS       8
@@ -199,6 +206,37 @@ static inline int16_t eyeRX(int16_t ox) { return eyeLX(ox) + EYE_W + EYE_GAP; }
 static inline int16_t eyeY()            { return (DISP_H - EYE_H) / 2 - EYE_OY; }
 static inline int16_t eyeCY()           { return eyeY() + EYE_H / 2; }
 
+// Draws the status line centred under the eyes, wrapping onto extra lines if
+// it is wider than the panel. Fixed buffer — no dynamic allocation.
+static void drawStatusText() {
+  if (statusText[0] == 0) return;
+
+  const int16_t charW = 6 * statusSize;
+  const int16_t lineH = 8 * statusSize + 2;
+  int16_t maxChars = DISP_W / charW;
+  if (maxChars < 1) maxChars = 1;
+
+  const int16_t len    = (int16_t)strlen(statusText);
+  const int16_t lines  = (len + maxChars - 1) / maxChars;
+  const int16_t startY = DISP_H - lines * lineH - 8;
+
+  tft.setTextSize(statusSize);
+  tft.setTextColor(statusColor ? statusColor : C_BLACK);
+
+  char line[STATUS_MAX + 1];
+  for (int16_t i = 0; i < lines; i++) {
+    int16_t n = len - i * maxChars;
+    if (n > maxChars) n = maxChars;
+    memcpy(line, statusText + i * maxChars, (size_t)n);
+    line[n] = 0;
+
+    int16_t x = (DISP_W - n * charW) / 2;
+    if (x < 0) x = 0;
+    tft.setCursor(x, startY + i * lineH);
+    tft.print(line);
+  }
+}
+
 static void drawNormalEyes(int16_t ox = 0, bool blink = false) {
   tft.fillScreen(animBgColor);
   const int16_t lx = eyeLX(ox), rx = eyeRX(ox), ey = eyeY();
@@ -209,6 +247,7 @@ static void drawNormalEyes(int16_t ox = 0, bool blink = false) {
     tft.fillRect(lx, ey + EYE_H / 2 - 3, EYE_W, 6, C_BLACK);
     tft.fillRect(rx, ey + EYE_H / 2 - 3, EYE_W, 6, C_BLACK);
   }
+  drawStatusText();
 }
 
 static void drawChevron(int16_t cx, int16_t cy, int16_t arm, int16_t reach,
@@ -238,6 +277,7 @@ static void drawSquishEyes(bool closed = false) {
     tft.fillRect(lx, cy - 5, EYE_W, 10, C_BLACK);
     tft.fillRect(rx, cy - 5, EYE_W, 10, C_BLACK);
   }
+  drawStatusText();
 }
 
 static void drawCodeView() {
@@ -450,21 +490,13 @@ static esp_err_t routeRoot(httpd_req_t* req) {
   return httpd_resp_send_chunk(req, NULL, 0);   // empty chunk ends the response
 }
 
-static esp_err_t routeCmd(httpd_req_t* req) {
-  char k[8] = {0};
-  if (!getQueryArg(req, "k", k, sizeof(k)) || k[0] == 0) {
-    sendJson(req, "{\"e\":1}");
-    return ESP_OK;
-  }
-  const char c = k[0];
-
+// Single-character view commands. Shared by the HTTP /cmd route and the serial
+// CLI so the two paths can never drift apart.
+static void applyCommand(char c) {
   if (termMode) {
     if (c == 'q') { termMode = false; drawCodeView(); }
-    sendJson(req, "{\"ok\":1}");
-    return ESP_OK;
+    return;
   }
-
-  sendJson(req, "{\"ok\":1}");
   switch (c) {
     case 'w': currentView = VIEW_EYES_NORMAL; animNormalEyes(); break;
     case 's': currentView = VIEW_EYES_SQUISH; animSquishEyes(); break;
@@ -476,6 +508,16 @@ static esp_err_t routeCmd(httpd_req_t* req) {
       animLogoReveal();
       break;
   }
+}
+
+static esp_err_t routeCmd(httpd_req_t* req) {
+  char k[8] = {0};
+  if (!getQueryArg(req, "k", k, sizeof(k)) || k[0] == 0) {
+    sendJson(req, "{\"e\":1}");
+    return ESP_OK;
+  }
+  applyCommand(k[0]);
+  sendJson(req, "{\"ok\":1}");
   return ESP_OK;
 }
 
@@ -681,6 +723,177 @@ static void mountStorage() {
   }
 }
 
+// ═════════════════════════════════════════════════════════════
+//  SERIAL CLI — USB serial via the CH340, i.e. UART0.
+//  Lets Claude Code hooks drive the screen. See CLAUDE-CODE-BRIDGE.md.
+// ═════════════════════════════════════════════════════════════
+
+#define SERIAL_RX_BUF   2048
+#define SERIAL_LINE_MAX 128
+#define IMG_BAND_ROWS      8
+
+static void serialReply(const char* s) {
+  ESP_LOGD(TAG, "reply '%s'", s);
+  printf("%s\n", s);
+}
+
+// Receives DISP_W x DISP_H raw RGB565 (little-endian) after answering "ready".
+// Bands of rows go straight to the panel, so no full-screen buffer is needed.
+static void serialReceiveImage() {
+  currentView = VIEW_DRAW;
+  termMode = false;
+  serialReply("ready");
+
+  static uint16_t band[DISP_W * IMG_BAND_ROWS];
+  uint8_t* raw = (uint8_t*)band;
+
+  const uint32_t bandPx   = (uint32_t)DISP_W * IMG_BAND_ROWS;
+  const uint32_t bandLen  = bandPx * 2;
+  const uint32_t totalPx  = (uint32_t)DISP_W * DISP_H;
+
+  uint32_t gotPx = 0, filled = 0;
+  int16_t  bandY = 0;
+
+  while (gotPx < totalPx) {
+    int n = uart_read_bytes(UART_NUM_0, raw + filled, bandLen - filled,
+                            pdMS_TO_TICKS(1000));
+    if (n <= 0) break;                       // stalled — give up
+    filled += (uint32_t)n;
+    if (filled == bandLen) {
+      tft.drawImage565(0, bandY, DISP_W, IMG_BAND_ROWS, band);
+      bandY += IMG_BAND_ROWS;
+      gotPx += bandPx;
+      filled = 0;
+    }
+  }
+  if (filled >= (uint32_t)DISP_W * 2) {       // flush a partial band
+    int16_t rows = (int16_t)(filled / 2 / DISP_W);
+    tft.drawImage565(0, bandY, DISP_W, rows, band);
+    gotPx += (uint32_t)rows * DISP_W;
+  }
+
+  char msg[32];
+  snprintf(msg, sizeof(msg), "done %lu", (unsigned long)(gotPx * 2));
+  serialReply(msg);
+}
+
+static void serialHandleLine(char* line) {
+  while (*line == ' ' || *line == '\t') line++;
+  size_t n = strlen(line);
+  while (n && (line[n - 1] == ' ' || line[n - 1] == '\t')) line[--n] = 0;
+  if (n == 0) return;
+
+  // Single-character view commands — same set as the web UI's /cmd.
+  if (n == 1) { applyCommand(line[0]); serialReply("ok"); return; }
+
+  if (line[0] == 't') {                      // t<text> — type into the terminal
+    if (!termMode) {
+      currentView = VIEW_CODE; drawCodeView();
+      termMode = true; termClear(); termFullRedraw();
+    }
+    for (size_t i = 1; i < n; i++) termAddChar(line[i]);
+    serialReply("ok");
+    return;
+  }
+
+  if (strncmp(line, "bg", 2) == 0) {         // bg#RRGGBB
+    animBgColor = hexToRgb565(line + 2);
+    drawBgColor = animBgColor;
+    switch (currentView) {
+      case VIEW_EYES_NORMAL: drawNormalEyes();            break;
+      case VIEW_EYES_SQUISH: drawSquishEyes();            break;
+      case VIEW_CODE:        drawCodeView();              break;
+      case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
+    }
+    serialReply("ok");
+    return;
+  }
+
+  if (strncmp(line, "speed", 5) == 0) {      // speed1 / speed2 / speed3
+    int s = atoi(line + 5);
+    animSpeed = (uint8_t)(s < 1 ? 1 : (s > 3 ? 3 : s));
+    serialReply("ok");
+    return;
+  }
+
+  if (strcmp(line, "logo") == 0) {
+    currentView = VIEW_EYES_NORMAL; animLogoReveal(); serialReply("ok"); return;
+  }
+  if (strcmp(line, "canvas") == 0) {
+    currentView = VIEW_DRAW; termMode = false;
+    tft.fillScreen(drawBgColor); serialReply("ok"); return;
+  }
+
+  if (strncmp(line, "line ", 5) == 0) {      // line x1,y1,x2,y2,#RRGGBB
+    int x1, y1, x2, y2; char col[16] = {0};
+    if (sscanf(line + 5, "%d,%d,%d,%d,%15s", &x1, &y1, &x2, &y2, col) == 5) {
+      uint16_t c = hexToRgb565(col);
+      tft.drawLine(x1, y1, x2, y2, c);
+      tft.drawLine(x1 + 1, y1, x2 + 1, y2, c);   // 2px, as in the upstream PR
+    }
+    serialReply("ok");
+    return;
+  }
+
+  if (strncmp(line, "status", 6) == 0) {     // status[N] [-c#RRGGBB] <text>
+    char* p = line + 6;
+    if (*p >= '1' && *p <= '4') { statusSize = (uint8_t)(*p - '0'); p++; }
+    while (*p == ' ') p++;
+
+    if (p[0] == '-' && p[1] == 'c') {
+      char hexbuf[16] = {0};
+      char*  sp = strchr(p + 2, ' ');
+      size_t hl = sp ? (size_t)(sp - (p + 2)) : strlen(p + 2);
+      if (hl > sizeof(hexbuf) - 1) hl = sizeof(hexbuf) - 1;
+      memcpy(hexbuf, p + 2, hl);
+      statusColor = hexToRgb565(hexbuf);
+      p = sp ? sp + 1 : p + 2 + hl;
+    }
+    while (*p == ' ') p++;
+
+    strncpy(statusText, p, STATUS_MAX - 1);
+    statusText[STATUS_MAX - 1] = 0;
+
+    if (currentView == VIEW_EYES_NORMAL)      drawNormalEyes();
+    else if (currentView == VIEW_EYES_SQUISH) drawSquishEyes();
+    serialReply("ok");
+    return;
+  }
+
+  if (strcmp(line, "img") == 0) { serialReceiveImage(); return; }
+
+  serialReply("unknown cmd");
+}
+
+static void serialTask(void* arg) {
+  static char line[SERIAL_LINE_MAX];
+  size_t len = 0;
+  uint8_t ch;
+
+  ESP_LOGD(TAG, "serial CLI task running");
+
+  // Read one byte at a time: a bulk read could swallow the first bytes of an
+  // "img" payload before the line was dispatched.
+  while (true) {
+    int n = uart_read_bytes(UART_NUM_0, &ch, 1, pdMS_TO_TICKS(100));
+    if (n <= 0) continue;
+    ESP_LOGD(TAG, "RX 0x%02x len=%u", ch, (unsigned)len);
+    if (ch == '\n' || ch == '\r') {
+      if (len) { line[len] = 0; ESP_LOGD(TAG, "dispatch '%s'", line); serialHandleLine(line); len = 0; }
+      continue;
+    }
+    if (len < SERIAL_LINE_MAX - 1) line[len++] = (char)ch;
+  }
+}
+
+static void serialInit() {
+  // UART0 doubles as the IDF console, whose driver may already be installed;
+  // uart_read_bytes() works either way, so a failure here is not fatal.
+  esp_err_t err = uart_driver_install(UART_NUM_0, SERIAL_RX_BUF, 0, 0, nullptr, 0);
+  ESP_LOGD(TAG, "UART0 driver install -> %s", esp_err_to_name(err));
+  xTaskCreate(serialTask, "serial_cli", 4096, nullptr, 5, nullptr);
+}
+
 extern "C" void app_main() {
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
@@ -736,9 +949,19 @@ extern "C" void app_main() {
   tft.print("press any button to start");
 
   startWebServer();
+  serialInit();
 
-  // Nothing to poll — the http server task handles requests internally.
+  // Leave the WiFi info screen up for a few seconds, then idle on the eyes.
+  // Timed non-blocking so the serial/web handlers keep running throughout.
+  const TickType_t wifiScreenUntil = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
+  bool switchedToEyes = false;
+
   while (true) {
-    delayMs(1000);
+    if (!switchedToEyes && xTaskGetTickCount() >= wifiScreenUntil) {
+      switchedToEyes = true;
+      currentView = VIEW_EYES_NORMAL;
+      animNormalEyes();
+    }
+    delayMs(200);
   }
 }

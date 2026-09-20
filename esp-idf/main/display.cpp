@@ -17,6 +17,7 @@ static const char* TAG = "display";
 #define FILL_PIXELS (240 * 8)   // pixels per transfer
 
 static SemaphoreHandle_t s_flush_done = nullptr;
+static SemaphoreHandle_t s_panel_lock = nullptr;   // serialises panel access between tasks
 static uint16_t          s_fill_buf[FILL_PIXELS];
 
 // draw_bitmap() queues the pixels for DMA and returns immediately; this
@@ -38,6 +39,8 @@ void Display::init(uint16_t w, uint16_t h) {
 
   s_flush_done = xSemaphoreCreateBinary();
   ESP_ERROR_CHECK(s_flush_done != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
+  s_panel_lock = xSemaphoreCreateMutex();
+  ESP_ERROR_CHECK(s_panel_lock != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
 
   spi_bus_config_t buscfg = {};
   buscfg.mosi_io_num = _mosi;
@@ -112,6 +115,11 @@ void Display::fillArea(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t colo
   size_t rows_max = FILL_PIXELS / row_px;
   if (rows_max == 0) return;   // wider than the scratch buffer
 
+  // Hold the panel for the whole transfer: s_flush_done is a *binary*
+  // semaphore, so two tasks interleaving draw_bitmap/take would let one give
+  // be absorbed and the other block forever.
+  xSemaphoreTake(s_panel_lock, portMAX_DELAY);
+
   for (int16_t row = 0; row < h; row += (int16_t)rows_max) {
     size_t rows = (size_t)(h - row);
     if (rows > rows_max) rows = rows_max;
@@ -124,6 +132,35 @@ void Display::fillArea(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t colo
                                               s_fill_buf));
     xSemaphoreTake(s_flush_done, portMAX_DELAY);
   }
+
+  xSemaphoreGive(s_panel_lock);
+}
+
+// Blits a raw RGB565 bitmap supplied by the caller (e.g. the serial "img"
+// command). Bands of rows are handed straight to the panel; draw_bitmap is
+// asynchronous, so each band is waited on before returning — which also means
+// the caller's buffer is free again once this returns.
+void Display::drawImage565(int16_t x, int16_t y, int16_t w, int16_t h,
+                           const uint16_t* data) {
+  if (w <= 0 || h <= 0 || data == nullptr) return;
+
+  size_t row_px   = (size_t)w;
+  size_t rows_max = FILL_PIXELS / row_px;
+  if (rows_max == 0) rows_max = 1;
+
+  xSemaphoreTake(s_panel_lock, portMAX_DELAY);
+
+  for (int16_t row = 0; row < h; row += (int16_t)rows_max) {
+    size_t rows = (size_t)(h - row);
+    if (rows > rows_max) rows = rows_max;
+
+    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(_panel, x, y + row,
+                                              x + w, y + row + (int16_t)rows,
+                                              data + (size_t)row * row_px));
+    xSemaphoreTake(s_flush_done, portMAX_DELAY);
+  }
+
+  xSemaphoreGive(s_panel_lock);
 }
 
 void Display::drawPixel(int16_t x, int16_t y, uint16_t color) {

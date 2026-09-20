@@ -27,3 +27,7 @@ desktop.ini
 # ESP-IDF (build/ is already ignored above)
 managed_components/
 sdkconfig.old
+
+# Python
+__pycache__/
+*.pyc
