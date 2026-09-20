@@ -39,6 +39,7 @@
 #include "display.h"
 #include "logo_data.h"
 #include "esp_littlefs.h"
+#include "ble_cli.h"
 
 static const char* TAG = "clawd_mochi";
 
@@ -860,9 +861,32 @@ static void serialHandleLine(char* line) {
     return;
   }
 
-  if (strcmp(line, "img") == 0) { serialReceiveImage(); return; }
+  if (strcmp(line, "img") == 0) {
+    // Only reachable over BLE: the serial reader intercepts "img" itself,
+    // since the pixel stream has to be read off its own UART.
+    serialReply("img: usb serial only");
+    return;
+  }
 
   serialReply("unknown cmd");
+}
+
+// Commands from both transports (USB serial and BLE) are queued and run by a
+// single worker task, so a slow screen animation can never stall the NimBLE
+// host task — and the two paths can never run concurrently.
+static QueueHandle_t s_cmdQueue = nullptr;
+
+static_assert(SERIAL_LINE_MAX == BLE_CLI_LINE_MAX,
+              "queue item size must match what ble_cli posts");
+
+static void cmdWorkerTask(void* arg) {
+  char line[SERIAL_LINE_MAX];
+  while (true) {
+    if (xQueueReceive(s_cmdQueue, line, portMAX_DELAY) == pdTRUE) {
+      ESP_LOGI(TAG, "cmd: %s", line);
+      serialHandleLine(line);
+    }
+  }
 }
 
 static void serialTask(void* arg) {
@@ -870,16 +894,20 @@ static void serialTask(void* arg) {
   size_t len = 0;
   uint8_t ch;
 
-  ESP_LOGD(TAG, "serial CLI task running");
-
   // Read one byte at a time: a bulk read could swallow the first bytes of an
   // "img" payload before the line was dispatched.
   while (true) {
     int n = uart_read_bytes(UART_NUM_0, &ch, 1, pdMS_TO_TICKS(100));
     if (n <= 0) continue;
-    ESP_LOGD(TAG, "RX 0x%02x len=%u", ch, (unsigned)len);
     if (ch == '\n' || ch == '\r') {
-      if (len) { line[len] = 0; ESP_LOGD(TAG, "dispatch '%s'", line); serialHandleLine(line); len = 0; }
+      if (len) {
+        line[len] = 0;
+        // "img" streams raw pixels off this UART, so it must run here, where
+        // we own the port — not on the worker task.
+        if (strcmp(line, "img") == 0) serialReceiveImage();
+        else xQueueSend(s_cmdQueue, line, 0);
+        len = 0;
+      }
       continue;
     }
     if (len < SERIAL_LINE_MAX - 1) line[len++] = (char)ch;
@@ -887,11 +915,17 @@ static void serialTask(void* arg) {
 }
 
 static void serialInit() {
+  s_cmdQueue = xQueueCreate(8, SERIAL_LINE_MAX);
+  ESP_ERROR_CHECK(s_cmdQueue != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
+  xTaskCreate(cmdWorkerTask, "cmd_worker", 6144, nullptr, 5, nullptr);
+
   // UART0 doubles as the IDF console, whose driver may already be installed;
   // uart_read_bytes() works either way, so a failure here is not fatal.
   esp_err_t err = uart_driver_install(UART_NUM_0, SERIAL_RX_BUF, 0, 0, nullptr, 0);
   ESP_LOGD(TAG, "UART0 driver install -> %s", esp_err_to_name(err));
   xTaskCreate(serialTask, "serial_cli", 4096, nullptr, 5, nullptr);
+
+  bleCliInit(s_cmdQueue);
 }
 
 extern "C" void app_main() {
