@@ -23,3 +23,7 @@ desktop.ini
 *.log
 *.tmp
 *.bak
+
+# ESP-IDF (build/ is already ignored above)
+managed_components/
+sdkconfig.old
