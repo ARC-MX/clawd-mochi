@@ -72,37 +72,3 @@ dropped when it moved to a classic ESP32.
 
 After flashing, connect to WiFi `ClaWD-Mochi` (pw `clawd1234`) and open
 `http://192.168.4.1`.
-
-## Simulating it (Wokwi)
-
-`wokwi.toml` and `diagram.json` in this directory configure the project for the
-[Wokwi](https://wokwi.com) simulator, wired to the pins above. Build first, then
-start the simulator:
-
-```bash
-idf.py build
-# VS Code: F1 -> "Wokwi: Start Simulator"   (needs the Wokwi extension)
-```
-
-Wokwi reads `build/flasher_args.json` rather than the app `.bin`, which is what
-gets the bootloader, the custom partition table **and the 2.44 MB LittleFS
-theme** into the simulation. Point it at the `.bin` instead and the device
-boots into an empty filesystem — `mountStorage()` formats it on the fly and the
-pet has nothing to play.
-
-**What the simulation is good for, and what it is not:**
-
-| | |
-| --- | --- |
-| ✅ Boot splash, and the animations themselves | the theme is in the flash image, so this is the real firmware drawing the real pack |
-| ✅ Checking code changes boot and run | panics, asserts and log output are all visible |
-| ❌ **WiFi and BLE** | Wokwi does not simulate a network. No AP to join, so the web controller, `/state` and theme upload are unreachable |
-| ❌ **Colours, exactly** | the display is Wokwi's `wokwi-ili9341` standing in for the ST7789 — there is no ST7789 part. Same SPI TFT family, different controller: this panel needs invert-on and a 240x240 window inside a taller GRAM, and the sim part may not honour either |
-| ❌ **Backlight** | GPIO 14 is deliberately left unwired; the PWM brightness is not simulated |
-| ❌ **Timing** | simulation speed is not wall-clock, so frame-rate numbers from it mean nothing |
-
-So: trust it for *"does the art appear, is it the right art, does it boot"*, and
-verify colour and timing on the real panel. `tools/mochi_theme.py preview`
-answers the same art question from the pack alone, without a simulator or a
-device — it is faster, and it is the one that knows about `scale`.
-
