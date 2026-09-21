@@ -28,6 +28,15 @@ void animListStates(char* out, unsigned outLen);
 // Spawns the player task. Call once, after LittleFS is mounted.
 void animInit(void);
 
+// Where the active theme lives: manifest.txt plus one .caf per state. Shared so
+// the theme upload routes and the player cannot disagree about the path.
+#define ANIM_THEME_DIR   "/littlefs/theme"
+#define ANIM_MANIFEST    ANIM_THEME_DIR "/manifest.txt"
+
+// Re-reads the theme after it has been replaced on disk: drops any cached
+// state and restarts on `idle`. Call once an upload has finished.
+void animReloadTheme(void);
+
 #ifdef __cplusplus
 }
 #endif

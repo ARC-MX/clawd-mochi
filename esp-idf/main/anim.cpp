@@ -32,8 +32,8 @@
 
 static const char* TAG = "anim";
 
-#define THEME_DIR     "/littlefs/theme"
-#define MANIFEST_PATH THEME_DIR "/manifest.txt"
+#define THEME_DIR     ANIM_THEME_DIR
+#define MANIFEST_PATH ANIM_MANIFEST
 
 #define STATE_MAX     24     // longest state name we accept
 // Not PATH_MAX: that is a standard <limits.h> macro and redefining it clashes.
@@ -444,6 +444,14 @@ void animSetSpeed(unsigned level) {
     case 3:  s_speedNum = 2; s_speedDen = 3; break;   // 0.67x
     default: s_speedNum = 1; s_speedDen = 1; break;   // as authored
   }
+}
+
+// The theme directory has been replaced underneath us. Nothing about a theme is
+// cached — the manifest is re-read, and the scale with it, on every state
+// change — so restarting on `idle` is all it takes to pick the new pack up.
+void animReloadTheme(void) {
+  animPlayState("");
+  animPlayState("idle");
 }
 
 void animPlayState(const char* state) {

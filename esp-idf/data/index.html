@@ -163,6 +163,27 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
   </div>
 </div>
 
+<div class="sec">// theme</div>
+<div class="ctrl" style="flex-direction:column;gap:8px;align-items:stretch">
+  <div style="font-size:11px;color:#8a8278;line-height:1.5">
+    The device holds <b>one</b> theme; the partition is not big enough for a
+    second. Pick a pack folder — it replaces what is on the device.
+  </div>
+  <input type="file" id="themeFiles" webkitdirectory directory multiple
+         style="font-size:11px;color:#ddd;background:#2a2a2e;border:1px solid #444;border-radius:6px;padding:6px;width:100%">
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:11px;color:#8a8278;white-space:nowrap">expression</span>
+    <select id="stateSel" onchange="playState(this.value)"
+            style="flex:1;font-size:11px;background:#2a2a2e;color:#ddd;border:1px solid #444;border-radius:6px;padding:6px">
+      <option value="">— pick a state —</option>
+    </select>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="lbtn" id="themeBtn" onclick="uploadTheme()">upload theme</button>
+    <span class="sv" id="themeSt" style="font-size:11px"></span>
+  </div>
+</div>
+
 <div class="sec">// terminal</div>
 <div class="twrap" id="twrap">
   <div class="thdr">
@@ -409,6 +430,64 @@ async function clearAll() {
   toast('cleared');
 }
 
+// Play one of the states the mounted theme provides. The list comes from the
+// device, so it always matches what is actually on it — a pack with no `happy`
+// simply will not offer one.
+async function playState(name) {
+  if (!name) return;
+  await fetch('/theme/state?name=' + encodeURIComponent(name));
+}
+
+// The pack is posted one file at a time, manifest LAST. Until that manifest
+// lands the device still has its old mapping, which is the closest thing to an
+// atomic swap a partition this full allows — there is no room to stage a second
+// copy alongside the first. Files are streamed as FormData-free bodies, so a
+// 2 MB pack never has to exist in the browser as one blob.
+async function uploadTheme() {
+  const picker = document.getElementById('themeFiles');
+  const st = document.getElementById('themeSt');
+  const btn = document.getElementById('themeBtn');
+  const files = [...picker.files];
+  if (!files.length) { toast('pick a pack folder first'); return; }
+
+  const manifest = files.filter(f => f.name === 'manifest.txt');
+  if (!manifest.length) { toast('that folder has no manifest.txt'); return; }
+  const ordered = files.filter(f => f.name !== 'manifest.txt').concat(manifest);
+
+  btn.disabled = true;
+  try {
+    // Clear the partition first. The old and new themes do not both fit — the
+    // current pack alone leaves under 400 KB of 2.44 MB — so there is nothing
+    // to stage the new one beside.
+    st.textContent = 'clearing...';
+    const rb = await fetch('/theme/begin', { method: 'POST' });
+    const jb = await rb.json();
+    if (!jb.ok) throw new Error('could not clear the old theme');
+
+    for (let i = 0; i < ordered.length; i++) {
+      const f = ordered[i];
+      st.textContent = f.name + '  ' + (i + 1) + '/' + ordered.length;
+      const r = await fetch('/theme/put?name=' + encodeURIComponent(f.name),
+                            { method: 'POST', body: f });
+      const j = await r.json();
+      if (!j.ok) throw new Error(f.name + ': ' + (j.e || 'rejected'));
+    }
+    st.textContent = 'committing...';
+    const r = await fetch('/theme/commit', { method: 'POST' });
+    const j = await r.json();
+    if (!j.ok) throw new Error('commit rejected');
+    st.textContent = 'applied (' + j.dropped + ' stale dropped)';
+    toast('theme applied');
+  } catch (e) {
+    // A failure partway leaves the theme half-written; the old manifest may or
+    // may not still match. Say so plainly rather than implying it worked.
+    st.textContent = 'FAILED - theme may be incomplete';
+    toast('upload failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // Init: sync speed, backlight and pet background from the device
 (async () => {
   try {
@@ -428,6 +507,13 @@ async function clearAll() {
     // Sync pet background. The device is the source of truth: it also holds any
     // colour set over serial/BLE, so do not keep a second copy of the default.
     if (j.bg) document.getElementById('bgCol').value = j.bg;
+    // Expressions offered are whatever the mounted pack actually provides.
+    if (j.states) {
+      const sel = document.getElementById('stateSel');
+      sel.innerHTML = '<option value="">— pick a state —</option>' +
+        j.states.split(' ').filter(Boolean)
+          .map(s => '<option value="' + s + '">' + s + '</option>').join('');
+    }
   } catch(e) {}
   // The canvas is local to draw mode and has no device-side sync point.
   redrawCanvas(document.getElementById('cvCol').value);

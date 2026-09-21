@@ -21,6 +21,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <dirent.h>
+#include <unistd.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -102,12 +104,10 @@ static uint8_t  currentView  = VIEW_ANIM;
 // `idle` after the WiFi screen, and must not clobber an explicit request (a hook
 // fires within seconds of boot).
 static bool     stateRequested = false;
-// Colour the screen is cleared to before an animation starts, and the canvas
-// background. White matches the theme's own background.
-// Colour the screens that are not animations are cleared to, and — since the
-// player treats the artwork's field index as transparent — the pet's own
-// background too. Set in initColours(); the '#RRGGBB' default lives there so it
-// can go through color565(), which is not a constant expression.
+// What the non-animation screens are cleared to, and — since the player treats
+// the artwork's field index as transparent — the pet's own background too. Set
+// in initColours(); the default lives there so it can go through color565(),
+// which is not a constant expression.
 static uint16_t animSurround = 0xFFFF;
 static bool     busy         = false;
 static bool     backlightOn  = true;
@@ -759,17 +759,200 @@ static esp_err_t routeBacklight(httpd_req_t* req) {
   return ESP_OK;
 }
 
+// ── Theme replacement ─────────────────────────────────────────
+// Uploading a pack is a three-step replacement — begin, put per file, commit —
+// rather than one request, because the partition cannot hold two themes at
+// once. See routeThemeBegin for why.
+#define THEME_NAME_MAX 64
+#define THEME_PATH_MAX 96
+#define THEME_CHUNK    2048
+
+// Frees the partition before an upload starts.
+//
+// This step exists because the two themes cannot coexist: clawd's pack alone
+// leaves ~380 KB of the 2.44 MB partition free, which is less than any pack
+// worth installing. Staging the new theme beside the old one — the obvious way
+// to make the swap atomic — is simply not possible here, so the old animations
+// are dropped first and the manifest is written last. That leaves the manifest
+// pointing at files that are gone for the duration of the upload; the player is
+// stopped here so it does not spend the transfer logging that.
+static esp_err_t routeThemeBegin(httpd_req_t* req) {
+  noteActivity();
+  animPlayState("");         // stop the player while its files are missing
+
+  unsigned freed = 0;
+  DIR* dir = opendir(ANIM_THEME_DIR);
+  if (dir) {
+    struct dirent* de;
+    char victim[THEME_PATH_MAX];
+    while ((de = readdir(dir)) != nullptr) {
+      const char* n = de->d_name;
+      if (n[0] == '.' || strcmp(n, "manifest.txt") == 0) continue;
+      if (strlen(n) >= THEME_NAME_MAX) continue;
+      snprintf(victim, THEME_PATH_MAX, "%s/%.*s", ANIM_THEME_DIR,
+               THEME_NAME_MAX - 1, n);
+      if (unlink(victim) == 0) freed++;
+    }
+    closedir(dir);
+  }
+  ESP_LOGI(TAG, "theme: cleared %u file(s) for a new upload", freed);
+
+  char j[48];
+  snprintf(j, sizeof(j), "{\"ok\":1,\"cleared\":%u}", freed);
+  sendJson(req, j);
+  return ESP_OK;
+}
+
+// ── Theme upload ──────────────────────────────────────────────
+// The partition holds exactly one theme, so "switching" is replacement rather
+// than a choice among installed themes — there is no room for a second, let
+// alone a staging copy to build beside the current one. The pack is posted one
+// file at a time and the manifest goes last: until it lands, the old mapping is
+// still in force, which is as close to an atomic swap as a full partition
+// allows. A failure partway leaves a half-written theme, so the commit step is
+// separate and explicit.
+static esp_err_t routeThemePut(httpd_req_t* req) {
+  noteActivity();
+  char name[THEME_NAME_MAX] = {0};
+  if (!getQueryArg(req, "name", name, sizeof(name)) || name[0] == 0) {
+    sendJson(req, "{\"e\":\"name\"}");
+    return ESP_OK;
+  }
+  // The name becomes a path component and arrives from the network.
+  if (strstr(name, "..") || strchr(name, '/') || strchr(name, '\\')) {
+    ESP_LOGW(TAG, "theme: rejected name '%s'", name);
+    sendJson(req, "{\"e\":\"name\"}");
+    return ESP_OK;
+  }
+
+  char path[THEME_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/%s", ANIM_THEME_DIR, name);
+
+  FILE* fd = fopen(path, "wb");
+  if (!fd) {
+    ESP_LOGE(TAG, "theme: cannot write %s", path);
+    sendJson(req, "{\"e\":\"open\"}");
+    return ESP_OK;
+  }
+
+  char* buf = (char*)malloc(THEME_CHUNK);
+  if (!buf) {
+    fclose(fd);
+    sendJson(req, "{\"e\":\"mem\"}");
+    return ESP_OK;
+  }
+
+  int left = req->content_len;
+  while (left > 0) {
+    int want = left > THEME_CHUNK ? THEME_CHUNK : left;
+    int got = httpd_req_recv(req, buf, want);
+    if (got <= 0) break;
+    if (fwrite(buf, 1, (size_t)got, fd) != (size_t)got) break;
+    left -= got;
+  }
+  free(buf);
+  fclose(fd);
+
+  if (left > 0) {
+    ESP_LOGE(TAG, "theme: %s truncated, %d byte(s) missing", name, left);
+    sendJson(req, "{\"e\":\"short\"}");
+    return ESP_OK;
+  }
+  ESP_LOGI(TAG, "theme: wrote %s (%d bytes)", name, req->content_len);
+  sendJson(req, "{\"ok\":1}");
+  return ESP_OK;
+}
+
+// Drops animations the new manifest does not reference, then restarts the
+// player. Without the sweep the previous set's files would still be occupying
+// the partition — and there is no room for both.
+static esp_err_t routeThemeCommit(httpd_req_t* req) {
+  noteActivity();
+
+  char manifest[2048];
+  size_t mLen = 0;
+  FILE* mf = fopen(ANIM_MANIFEST, "r");
+  if (mf) {
+    mLen = fread(manifest, 1, sizeof(manifest) - 1, mf);
+    fclose(mf);
+  }
+  manifest[mLen] = 0;
+
+  // Collect first, delete after: unlinking while a directory is being walked
+  // is asking for trouble on a filesystem this small.
+  char doomed[16][THEME_PATH_MAX];
+  unsigned nDoomed = 0;
+
+  if (mLen > 0) {
+    DIR* dir = opendir(ANIM_THEME_DIR);
+    if (dir) {
+      struct dirent* de;
+      while ((de = readdir(dir)) != nullptr && nDoomed < 16) {
+        const char* n = de->d_name;
+        if (n[0] == '.' || strcmp(n, "manifest.txt") == 0) continue;
+        // d_name is 255 bytes wide; nothing a theme ships is anywhere near
+        // that, and the length check keeps the path snprintf below provably
+        // in bounds.
+        if (strlen(n) >= THEME_NAME_MAX) continue;
+        // A substring test can only under-delete, never over-delete: a name
+        // that IS referenced always matches itself. Worst case a stale file
+        // survives and wastes space, which is the benign direction.
+        if (strstr(manifest, n) == nullptr) {
+          snprintf(doomed[nDoomed], THEME_PATH_MAX, "%s/%.*s",
+                   ANIM_THEME_DIR, THEME_NAME_MAX - 1, n);
+          nDoomed++;
+        }
+      }
+      closedir(dir);
+    }
+  }
+
+  unsigned dropped = 0;
+  for (unsigned i = 0; i < nDoomed; i++) {
+    if (unlink(doomed[i]) == 0) dropped++;
+  }
+
+  animReloadTheme();
+  ESP_LOGI(TAG, "theme: committed (%u stale file(s) dropped)", dropped);
+
+  char j[48];
+  snprintf(j, sizeof(j), "{\"ok\":1,\"dropped\":%u}", dropped);
+  sendJson(req, j);
+  return ESP_OK;
+}
+
+// Switches which animation plays. Separate from /cmd, which only carries the
+// single-character verbs the original sketch defined.
+static esp_err_t routeThemeState(httpd_req_t* req) {
+  noteActivity();
+  char name[THEME_NAME_MAX] = {0};
+  if (!getQueryArg(req, "name", name, sizeof(name))) {
+    sendJson(req, "{\"e\":\"name\"}");
+    return ESP_OK;
+  }
+  stateRequested = true;
+  currentView = VIEW_ANIM;
+  requestState(name);            // empty name stops the player
+  sendJson(req, "{\"ok\":1}");
+  return ESP_OK;
+}
+
 static esp_err_t routeState(httpd_req_t* req) {
   char bg[8];
   rgb565ToHex(animSurround, bg, sizeof(bg));
-  char j[160];
+  // The state list rides along so the web UI can offer a picker without a
+  // second round trip, and without duplicating the manifest's contents here.
+  char states[192];
+  animListStates(states, sizeof(states));
+  char j[384];
   snprintf(j, sizeof(j),
-           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"speed\":%u,\"bg\":\"%s\"}",
+           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"speed\":%u,"
+           "\"bg\":\"%s\",\"states\":\"%s\"}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
-           animSpeed, bg);
+           animSpeed, bg, states);
   sendJson(req, j);
   return ESP_OK;
 }
@@ -805,7 +988,12 @@ static void wifiInitSoftAP() {
 
 static void startWebServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 16;
+  // 12 routes are registered below; keep a little headroom. The upload routes
+  // also need a bigger stack than 4 KB while writing to LittleFS.
+  config.max_uri_handlers = 20;
+  config.stack_size       = 8192;
+  config.recv_wait_timeout = 30;    // a 2 MB pack over WiFi is not fast
+  config.send_wait_timeout = 30;
   config.uri_match_fn = httpd_uri_match_wildcard;
 
   if (httpd_start(&server, &config) != ESP_OK) {
@@ -827,6 +1015,16 @@ static void startWebServer() {
   r.uri = "/draw/stroke"; r.handler = routeDrawStroke; httpd_register_uri_handler(server, &r);
   r.uri = "/backlight";   r.handler = routeBacklight;  httpd_register_uri_handler(server, &r);
   r.uri = "/state";       r.handler = routeState;      httpd_register_uri_handler(server, &r);
+  r.uri = "/theme/state"; r.handler = routeThemeState; httpd_register_uri_handler(server, &r);
+
+  // Theme upload posts a body, so it cannot share the GET handler above.
+  r.method = HTTP_POST;
+  r.uri = "/theme/begin";  r.handler = routeThemeBegin;
+  httpd_register_uri_handler(server, &r);
+  r.uri = "/theme/put";    r.handler = routeThemePut;
+  httpd_register_uri_handler(server, &r);
+  r.uri = "/theme/commit"; r.handler = routeThemeCommit;
+  httpd_register_uri_handler(server, &r);
 
   httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, routeNotFound);
 }
