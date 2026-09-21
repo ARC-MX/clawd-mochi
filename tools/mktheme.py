@@ -112,6 +112,17 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
 
+    # Wipe stale animations first. A leftover .caf from an earlier build would
+    # silently inflate the pack — worse, it would be uploaded along with the
+    # rest and eat partition the new theme needs.
+    stale = 0
+    for f in os.listdir(args.out):
+        if f.endswith(".caf") or f == "manifest.txt":
+            os.remove(os.path.join(args.out, f))
+            stale += 1
+    if stale:
+        print(f"  cleared {stale} file(s) left by a previous build")
+
     def build(suffix, missing_ok):
         gif = sticker(suffix)
         if gif is None:
