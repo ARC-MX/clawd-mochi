@@ -229,7 +229,19 @@ python3 tools/mktheme.py ../stickers/128/calico -o /tmp/calico-pack \
 ```
 
 It prints the packed size against the partition budget, so an oversized pack is
-obvious before flashing rather than during upload.
+obvious before flashing rather than during upload. `tools/mochi_theme.py`
+fronts the whole pipeline — `convert`, `pack`, `verify`, `preview` — and
+`preview` is the one worth knowing about:
+
+```bash
+python3 tools/mochi_theme.py preview /tmp/calico-pack -o /tmp/calico.png
+```
+
+It renders what the panel will show — the manifest's `scale`, the transparent
+field with your background behind it, the frame at its stored position — so a
+pack can be judged without flashing it. Worth doing before an upload, since
+replacing a theme is destructive: the old pack is deleted first, and there is
+no room to keep a copy.
 
 **Two things decide whether a set fits**, and they interact:
 
