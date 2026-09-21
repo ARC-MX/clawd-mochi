@@ -133,9 +133,9 @@ void Display::fillArea(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t colo
   size_t rows_max = FILL_PIXELS / row_px;
   if (rows_max == 0) return;   // wider than the scratch buffer
 
-  // Hold the panel for the whole transfer: s_flush_done is a *binary*
-  // semaphore, so two tasks interleaving draw_bitmap/take would let one give
-  // be absorbed and the other block forever.
+  // Hold the panel for the whole transfer: every waiter takes one completion
+  // off s_flush_done, so two tasks interleaving draw_bitmap/take without the
+  // lock could have one steal the other's signal and block it forever.
   xSemaphoreTake(s_panel_lock, portMAX_DELAY);
 
   for (int16_t row = 0; row < h; row += (int16_t)rows_max) {

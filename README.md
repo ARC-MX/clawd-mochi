@@ -136,11 +136,20 @@ You should see the web controller:
 | Done               | Plays the theme's finished animation            |
 | Claude Code        | Shows code display, opens terminal              |
 | Canvas             | Enter drawing mode — draw on display from phone |
-| Speed slider       | Controls animation speed (slow / normal / fast) |
-| Background color   | Changes background color of all views           |
+| Speed slider       | Scales the animation rate (slow / normal / fast) |
+| Pet BG             | Background the pet shows through                |
+| Canvas BG          | Background of the drawing surface (separate)    |
 | Pen color          | Sets drawing color for canvas                   |
 | Display on/off     | Toggles the backlight                           |
+| Expression         | Plays any state the mounted theme provides      |
+| Upload theme       | Replaces the pack on the device — see Customisation |
 | ✓ done (in canvas) | Exits canvas mode                               |
+
+The pet also naps: with nothing driving it for two minutes it switches to the
+theme's `sleep` state, and wakes on the next state request. Any command restarts
+the timer, but only a state change rouses it — a status line should not. Change
+the interval with `sleepafter <seconds>` over serial or BLE (0 disables); it is
+not persisted, so a reboot returns to the 120 s default.
 
 ---
 
@@ -202,29 +211,62 @@ state names to `.caf` animation files, so you can change what a state looks like
 (or add one) by editing files on the device — no firmware change.
 
 ```
-esp-idf/data/theme/manifest.txt   # state=file, one per line
+esp-idf/data/theme/manifest.txt   # state=file, one per line, plus scale=N
 esp-idf/data/theme/*.caf          # converted from GIF by tools/gif2caf.py
 ```
 
-Convert a new set of stickers with:
+A theme directory plus its manifest is a **pack**, and the device holds exactly
+one — the 2.44 MB LittleFS partition has room for one pack of roughly 2 MB and
+nothing else. Switch packs from the web UI's `// theme` section, which posts the
+new pack file by file and then commits it; see CLAUDE-CODE-BRIDGE.md for why
+that is a three-step replacement rather than a swap.
+
+Build a pack from a sticker set with:
 
 ```bash
-python3 tools/gif2caf.py ../stickers/240/clawd -o esp-idf/data/theme/
-python3 tools/verify_caf.py        # confirms every frame decodes losslessly
+python3 tools/mktheme.py ../stickers/128/calico -o /tmp/calico-pack \
+        --scale 2 --no-upscale
 ```
 
-Playback rate is `ANIM_FPS` in `main/anim.cpp` (15 fps by default, matching how
-the stickers are authored). The surrounding background colour follows `bg#RRGGBB`.
+It prints the packed size against the partition budget, so an oversized pack is
+obvious before flashing rather than during upload.
+
+**Two things decide whether a set fits**, and they interact:
+
+- **Source resolution.** These sets ship at several sizes and the art is what
+  costs bytes, not the canvas. `stickers/calico/` draws the crab at 205x155 and
+  six states come to 3.6 MB; `stickers/128/calico/` draws it at 96x74 and the
+  same six come to 991 KB.
+- **Whether you store it big or magnify on the device.** Run-length encoding
+  only stays compact while pixels stay crisp, so upscaling at conversion time
+  costs bytes *and* sharpness. `--no-upscale --scale 2` stores the art small
+  and has the firmware magnify it as it pushes; cloudling's idle animation goes
+  from 481 KB to 203 KB that way, the same picture either way.
+
+Also available: `--stride N` keeps every Nth frame, folding the dropped frames'
+durations into the survivors so the animation still takes as long — that trades
+smoothness for size rather than silently speeding a theme up.
+
+Playback rate comes from the pack, not from the firmware: each `.caf` stores a
+per-frame duration taken from the source GIF, so a set authored at 8 fps and one
+authored at 17 fps each play at the rate they were drawn for. The web UI's speed
+slider scales that (1 = 1.5x slower, 2 = as authored, 3 = 0.67x). The background
+colour follows `bg#RRGGBB`, and is a runtime setting — palette index 0 in every
+frame is transparent, so the colour baked into the `.caf` is never displayed.
 
 ### Logo animation duration
 
 ```cpp
-// In animLogoReveal() — how long logo holds after animation
-delay(1500);       // milliseconds — change this number
+// In animLogoReveal() — how long the logo holds once revealed
+delayMs(1500);     // milliseconds — change this number
 
-// Speed of the reveal drawing stroke by stroke
-delay(speedMs(8)); // lower = faster
+// Time between reveal steps
+delayMs(24);       // lower = faster
 ```
+
+The reveal is deliberately *not* wired to the speed setting: it is a one-shot
+boot flourish, and tying it to `animSpeed` made the web UI's speed slider look
+like it controlled the pet's animations when it only ever changed this.
 
 ---
 

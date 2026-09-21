@@ -1333,23 +1333,17 @@ extern "C" void app_main() {
   initColours();
 
   // Boot splash — commemorative card, pale yellow with black lettering.
-  ESP_LOGI(TAG, "boot: splash start");
   tft.fillScreen(SPLASH_BG);
-  ESP_LOGI(TAG, "boot: splash bg");
   tft.drawImage565((DISP_W - SPLASH_TITLE_W) / 2, SPLASH_TITLE_Y,
                    SPLASH_TITLE_W, SPLASH_TITLE_H, SPLASH_TITLE_BITMAP);
-  ESP_LOGI(TAG, "boot: splash title");
   tft.drawImage565((DISP_W - SPLASH_CREDIT_W) / 2, SPLASH_CREDIT_Y,
                    SPLASH_CREDIT_W, SPLASH_CREDIT_H, SPLASH_CREDIT_BITMAP);
-  ESP_LOGI(TAG, "boot: splash credit");
   delayMs(1600);
 
   animLogoReveal();
-  ESP_LOGI(TAG, "boot: logo done");
 
 #if ENABLE_WIFI
   wifiInitSoftAP();
-  ESP_LOGI(TAG, "boot: wifi up");
 
   tft.fillScreen(C_DARKBG);
   tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
