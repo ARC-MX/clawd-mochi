@@ -1,0 +1,23 @@
+# Wokwi project configuration — see https://docs.wokwi.com/vscode/project-config
+#
+# Point firmware at build/flasher_args.json rather than the app .bin: for an
+# ESP-IDF project that file lists the bootloader, the partition table and every
+# image the project flashes, so the simulator gets the whole layout at once.
+# Here that matters for a specific reason — this project has a custom partition
+# table with a 2.44 MB LittleFS "storage" partition holding the animation
+# theme, and flasher_args.json is what carries storage.bin along with it. Point
+# at clawd_mochi.bin instead and the device boots into an empty filesystem:
+# mountStorage() formats it on the fly, the theme directory is gone, and the
+# pet has no animations to play.
+#
+# Paths are relative to this file, so run it from esp-idf/ — the directory
+# idf.py builds in.
+
+[wokwi]
+version = 1
+firmware = "build/flasher_args.json"
+elf = "build/clawd_mochi.elf"
+
+# Uncomment to attach a GDB server (the ESP-IDF extension's "Wokwi: Start
+# Simulator" then supports breakpoints):
+# gdbServerPort = 3333
