@@ -1,5 +1,7 @@
 # 在 Windows 上使用 Clawd Mochi
 
+**English: [WINDOWS-SETUP.en.md](WINDOWS-SETUP.en.md)** — 本文件是默认版本；两份如有出入，以这份为准。
+
 写给：拿到这台桌宠、要在 Windows 上把它跑起来的人。
 
 分三层，按需要往下读即可：
