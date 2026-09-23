@@ -14,9 +14,12 @@
  *     GND → GND
  *
  *   WiFi: "ClaWD-Mochi"  pw: clawd1234  → http://192.168.4.1
+ *   (factory defaults — the web UI's device card changes both, and the same
+ *    name is used for the BLE advertisement)
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -40,6 +43,7 @@
 
 #include "display.h"
 #include "cmd_queue.h"
+#include "settings.h"
 #include "transport_icon.h"
 #include "logo_data.h"
 #include "splash_text.h"
@@ -64,8 +68,9 @@ static const char* TAG = "clawd_mochi";
 Display tft(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK);
 
 // ── WiFi ──────────────────────────────────────────────────────
-static const char* AP_SSID = "ClaWD-Mochi";
-static const char* AP_PASS = "clawd1234";
+// The AP's identity is not a constant here: settings.c holds the stored device
+// name (shared with the BLE name) and password, and the web UI changes both. The
+// factory defaults live in settings.c beside the storage code.
 
 // ── Radio ─────────────────────────────────────────────────────
 // Historical note, because this bit the project hard: the first boot after a
@@ -665,6 +670,17 @@ static bool getQueryArg(httpd_req_t* req, const char* key, char* out, size_t out
   if (httpd_req_get_url_query_str(req, buf, len) != ESP_OK) { free(buf); return false; }
   bool found = (httpd_query_key_value(buf, key, out, outlen) == ESP_OK);
   free(buf);
+  if (found) urlDecode(out);
+  return found;
+}
+
+// Pulls one field out of a form-urlencoded body that the caller has already
+// read. httpd_req_recv consumes the body, so it is read once — see routeDevice —
+// and every field has to come out of that one buffer. Same key=value scanner as
+// the query string above, and the same decoding.
+static bool bodyArg(const char* body, const char* key, char* out, size_t outlen) {
+  const bool found = (httpd_query_key_value(body, key, out, outlen) == ESP_OK);
+  if (found) urlDecode(out);
   return found;
 }
 
@@ -856,6 +872,67 @@ static esp_err_t routeBacklight(httpd_req_t* req) {
   return ESP_OK;
 }
 
+// ── Device identity ───────────────────────────────────────────
+// One name for both radios — the AP SSID and the BLE advertisement are the same
+// string by design — plus the AP password, stored in NVS by settings.c.
+//
+// Applying a change means restarting. The AP has to come up with a different
+// identity and the BLE advertisement is built once at init, so a restart is both
+// simpler than a live reconfigure of two radios and exactly what the page warns
+// the user about ("the device will restart, reconnect to the new name").
+//
+// POST, not GET: this writes flash and reboots the SoC, and a GET lives on in
+// browser history where a reload or a prefetch would reboot the device again.
+static esp_err_t routeDevice(httpd_req_t* req) {
+  noteActivity();
+
+  char body[513];
+  const int got = (req->content_len > 0 && req->content_len < (int)sizeof(body))
+                      ? httpd_req_recv(req, body, req->content_len)
+                      : 0;
+  if (got <= 0) {
+    sendJson(req, "{\"e\":\"empty request\"}");
+    return ESP_OK;
+  }
+  body[got] = 0;
+
+  // Buffers deliberately longer than the limits settings.c enforces: a too-long
+  // value should come back as a clear error, not be silently truncated into
+  // something that looks valid.
+  char def[8] = {0};
+  char name[96] = {0};
+  char pass[96] = {0};
+  const char* err = nullptr;
+
+  if (bodyArg(body, "default", def, sizeof(def)) && def[0] == '1') {
+    if (!settingsReset(&err)) {
+      char j[96];
+      snprintf(j, sizeof(j), "{\"e\":\"%s\"}", err);
+      sendJson(req, j);
+      return ESP_OK;
+    }
+  } else {
+    bodyArg(body, "name", name, sizeof(name));
+    bodyArg(body, "pass", pass, sizeof(pass));
+    if (!settingsSave(name, pass, &err)) {
+      char j[96];
+      snprintf(j, sizeof(j), "{\"e\":\"%s\"}", err);
+      sendJson(req, j);
+      return ESP_OK;
+    }
+  }
+
+  char j[160];
+  snprintf(j, sizeof(j), "{\"ok\":1,\"name\":\"%s\"}", settingsName());
+  sendJson(req, j);
+
+  // Let that reply reach the socket before the radio goes down: the restart is
+  // about to drop this connection, and the page needs the answer to explain why.
+  delayMs(300);
+  esp_restart();
+  return ESP_OK;                       // not reached
+}
+
 // ── Theme replacement ─────────────────────────────────────────
 // Uploading a pack is a three-step replacement — begin, put per file, commit —
 // rather than one request, because the partition cannot hold two themes at
@@ -1041,15 +1118,18 @@ static esp_err_t routeState(httpd_req_t* req) {
   // second round trip, and without duplicating the manifest's contents here.
   char states[192];
   animListStates(states, sizeof(states));
-  char j[384];
+  // 512: the state list is the bulk of it, plus the identity strings — the name
+  // and password are validated at the door to exclude quotes and backslashes, so
+  // they go into the JSON verbatim.
+  char j[512];
   snprintf(j, sizeof(j),
            "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"speed\":%u,"
-           "\"bg\":\"%s\",\"states\":\"%s\"}",
+           "\"bg\":\"%s\",\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\"}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
-           animSpeed, bg, states);
+           animSpeed, bg, states, settingsName(), settingsPass());
   sendJson(req, j);
   return ESP_OK;
 }
@@ -1101,21 +1181,28 @@ static void wifiInitSoftAP() {
                                              &wifiEventHandler, nullptr));
 
   wifi_config_t wifi_config = {};
-  strncpy((char*)wifi_config.ap.ssid, AP_SSID, sizeof(wifi_config.ap.ssid));
-  strncpy((char*)wifi_config.ap.password, AP_PASS, sizeof(wifi_config.ap.password));
-  wifi_config.ap.ssid_len = strlen(AP_SSID);
+  const char* name = settingsName();
+  const char* pass = settingsPass();
+  strncpy((char*)wifi_config.ap.ssid, name, sizeof(wifi_config.ap.ssid));
+  strncpy((char*)wifi_config.ap.password, pass, sizeof(wifi_config.ap.password));
+  // ssid_len is what the driver copies, so the SSID need not be terminated —
+  // and a name at the length limit would not be, in a zero-filled 32-byte field.
+  wifi_config.ap.ssid_len = strlen(name);
   wifi_config.ap.max_connection = 4;
   wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+  // settingsLoad() has already dropped anything WPA2 would reject back to the
+  // default, so this check cannot abort for a stored value — only a hardware or
+  // driver failure gets here.
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
   ESP_ERROR_CHECK(esp_wifi_start());
-  ESP_LOGI(TAG, "SoftAP started: %s (pw: %s)", AP_SSID, AP_PASS);
+  ESP_LOGI(TAG, "SoftAP started: %s", name);
 }
 
 static void startWebServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  // 12 routes are registered below; keep a little headroom. The upload routes
+  // 13 routes are registered below; keep a little headroom. The upload routes
   // also need a bigger stack than 4 KB while writing to LittleFS.
   config.max_uri_handlers = 20;
   config.stack_size       = 8192;
@@ -1144,8 +1231,11 @@ static void startWebServer() {
   r.uri = "/state";       r.handler = routeState;      httpd_register_uri_handler(server, &r);
   r.uri = "/theme/state"; r.handler = routeThemeState; httpd_register_uri_handler(server, &r);
 
-  // Theme upload posts a body, so it cannot share the GET handler above.
+  // Posts with a body, so they cannot share the GET handlers above: the theme
+  // upload streams file bytes, and /device writes flash and reboots the device.
   r.method = HTTP_POST;
+  r.uri = "/device";       r.handler = routeDevice;
+  httpd_register_uri_handler(server, &r);
   r.uri = "/theme/begin";  r.handler = routeThemeBegin;
   httpd_register_uri_handler(server, &r);
   r.uri = "/theme/put";    r.handler = routeThemePut;
@@ -1361,6 +1451,36 @@ static void serialHandleLine(char* line) {
     return;
   }
 
+  // device [<name> [<password>]] — the same identity the web card saves, from the
+  // CLI. Both go through settings.c and both restart to apply, because the AP has
+  // to come up with the new SSID and the BLE advertisement is built at init. A
+  // bare `device` reports what is in force.
+  //
+  // The name cannot contain a space here; the web UI is how to set one that does
+  // (its form encoding carries the space through).
+  if (strncmp(line, "device", 6) == 0 && (line[6] == 0 || line[6] == ' ')) {
+    char* arg = line + 6;
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      char reply[128];
+      snprintf(reply, sizeof(reply), "name=%s pass=%s", settingsName(), settingsPass());
+      serialReply(reply);
+      return;
+    }
+    char* pass = strchr(arg, ' ');
+    if (pass) { *pass++ = 0; while (*pass == ' ') pass++; }
+
+    const char* err = nullptr;
+    if (!settingsSave(arg, pass ? pass : "", &err)) {
+      serialReply(err);
+      return;
+    }
+    serialReply("ok - restarting");
+    delayMs(300);
+    esp_restart();
+    return;
+  }
+
   // sleepafter <seconds> — how long the pet waits with nothing driving it
   // before napping. 0 disables. Reports the current value with no argument.
   if (strncmp(line, "sleepafter", 10) == 0 &&
@@ -1457,7 +1577,8 @@ static void serialInit() {
   }
 
 #if ENABLE_BLE
-  bleCliInit(s_cmdQueue);
+  // The BLE advertisement carries the same name as the SoftAP by design.
+  bleCliInit(s_cmdQueue, settingsName());
 #endif
 }
 
@@ -1587,8 +1708,38 @@ static void transportIconTick() {
   }
 }
 
+// Prints `s` from (x,y) at size 1, wrapping every `perLine` characters. Needed
+// because Display::write() never wraps and drawChar() only bounds-checks where a
+// glyph *starts*: a line longer than the 38 characters that fit across the panel
+// simply loses its tail off the edge, and the AP password is up to 63.
+static void printWrapped(int16_t x, int16_t y, uint8_t perLine, const char* s) {
+  uint8_t col = 0;
+  tft.setCursor(x, y);
+  for (; *s; s++) {
+    if (col == perLine) {
+      y += 12;                            // size 1 is a 12 px line here
+      tft.setCursor(x, y);
+      col = 0;
+    }
+    tft.print(*s);
+    col++;
+  }
+}
+
 extern "C" void app_main() {
-  ESP_ERROR_CHECK(nvs_flash_init());
+  esp_err_t nvs = nvs_flash_init();
+  if (nvs == ESP_ERR_NVS_NO_FREE_PAGES || nvs == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    // The device's identity lives in NVS, and the way back from a bad identity
+    // is the web page — which a boot loop never reaches. So a full or
+    // version-mismatched partition is erased rather than fatal. (The RF
+    // calibration is cached there too; it is simply redone on the next boot.)
+    ESP_LOGW(TAG, "NVS unusable (%s); erasing it", esp_err_to_name(nvs));
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    nvs = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(nvs);
+  // Before the radios: the AP's SSID and the BLE name both come from here.
+  settingsLoad();
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -1621,25 +1772,32 @@ extern "C" void app_main() {
 
   tft.fillScreen(C_DARKBG);
   tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
+  // Both strings are whatever the settings hold, so neither fits next to its
+  // label: the panel is 240 px and size 1 is 6 px per character. The name gets
+  // its own line, and the password wraps rather than truncating — this screen is
+  // how a phone gets onto the AP, and a 63-character password has to be readable.
   tft.setTextColor(C_WHITE);
   tft.setTextSize(2);
   tft.setCursor(12, 16);
-  tft.print("WiFi: ClaWD-Mochi");
-  tft.setTextColor(C_MUTED);
+  tft.print("WiFi");
   tft.setTextSize(1);
-  tft.setCursor(12, 44);
-  tft.print("password: clawd1234");
+  tft.setCursor(12, 36);
+  tft.print(settingsName());
+  tft.setTextColor(C_MUTED);
+  char passLine[80];
+  snprintf(passLine, sizeof(passLine), "password: %s", settingsPass());
+  printWrapped(12, 50, 38, passLine);
   tft.setTextColor(C_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(12, 68);
+  tft.setCursor(12, 90);
   tft.print("Open browser:");
   tft.setTextColor(C_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(12, 94);
+  tft.setCursor(12, 116);
   tft.print("192.168.4.1");
   tft.setTextColor(C_MUTED);
   tft.setTextSize(1);
-  tft.setCursor(12, 124);
+  tft.setCursor(12, 146);
   tft.print("press any button to start");
 
   startWebServer();

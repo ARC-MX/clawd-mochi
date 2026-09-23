@@ -9,6 +9,8 @@
 
 #include "esp_log.h"
 
+#include "settings.h"        // DEV_NAME_MAX, and one source of truth for the name
+
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -26,7 +28,14 @@ static const ble_uuid16_t s_chr_uuid = BLE_UUID16_INIT(0xABF1);
 
 static QueueHandle_t s_cmdQueue;
 static uint8_t       s_ownAddrType;
-static const char    s_devName[] = "clawd-mochi";
+// The advertised name, copied in by bleCliInit() from the stored device name
+// (settings.c). A fixed buffer rather than a const char[]: the name is the same
+// one the AP uses, and it is configured at runtime.
+//
+// Sized by the same limit settings.c enforces, because the name shares the
+// 31-byte legacy advertising PDU with the flags and the service UUID below:
+// 3 (flags) + 4 (one 16-bit UUID) + 2 + len <= 31 leaves 22.
+static char          s_devName[DEV_NAME_MAX + 1];
 // Written only by the NimBLE host task — the GAP callback runs there, and that
 // is where NimBLE serialises connection state. A count rather than a flag:
 // CONFIG_BT_NIMBLE_MAX_CONNECTIONS is 3, and a second central disconnecting must
@@ -163,8 +172,13 @@ static void hostTask(void *param) {
   nimble_port_freertos_deinit();
 }
 
-void bleCliInit(QueueHandle_t cmdQueue) {
+void bleCliInit(QueueHandle_t cmdQueue, const char* name) {
   s_cmdQueue = cmdQueue;
+
+  // Copied before the host starts: the name goes into the advertisement and the
+  // GAP attribute, and both are built from here on.
+  strncpy(s_devName, name ? name : "", sizeof(s_devName) - 1);
+  s_devName[sizeof(s_devName) - 1] = 0;
 
   ESP_ERROR_CHECK(nimble_port_init());
 

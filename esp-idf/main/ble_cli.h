@@ -11,11 +11,13 @@
 extern "C" {
 #endif
 
-// Starts a BLE peripheral advertising as "clawd-mochi" with a single writable
-// characteristic. Each write is trimmed and posted as one cmd_item_t tagged
-// CMD_SRC_BLE onto cmdQueue — the same queue the USB-serial reader feeds, whose
-// items are cmd_item_t (see cmd_queue.h).
-void bleCliInit(QueueHandle_t cmdQueue);
+// Starts a BLE peripheral with a single writable characteristic, advertising the
+// service UUID and `name` — the same device name the SoftAP uses (settings.c).
+// The name must already be whatever the caller wants advertised; it is copied.
+// Each write is trimmed and posted as one cmd_item_t tagged CMD_SRC_BLE onto
+// cmdQueue — the same queue the USB-serial reader feeds, whose items are
+// cmd_item_t (see cmd_queue.h).
+void bleCliInit(QueueHandle_t cmdQueue, const char* name);
 
 // How many centrals are connected right now. Written only by the NimBLE host
 // task, in the GAP callback; a byte load is atomic on this chip, so any task may
