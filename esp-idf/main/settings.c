@@ -97,6 +97,33 @@ static bool store(const char* name, const char* pass, const char** err) {
   return true;
 }
 
+bool settingsGetBg(uint16_t* colour) {
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+  uint16_t v = 0;
+  const bool found = (nvs_get_u16(h, "bg", &v) == ESP_OK);
+  nvs_close(h);
+  if (found && colour) *colour = v;
+  return found;
+}
+
+bool settingsSetBg(uint16_t colour) {
+  uint16_t stored = 0;
+  if (settingsGetBg(&stored) && stored == colour) return true;   // nothing to do
+
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+  esp_err_t e = nvs_set_u16(h, "bg", colour);
+  if (e == ESP_OK) e = nvs_commit(h);
+  nvs_close(h);
+  if (e != ESP_OK) {
+    ESP_LOGW(TAG, "could not store the background");
+    return false;
+  }
+  ESP_LOGI(TAG, "stored background 0x%04x", (unsigned)colour);
+  return true;
+}
+
 bool settingsSave(const char* name, const char* pass, const char** err) {
   const char* n = (name && name[0]) ? name : s_name;
   const char* p = (pass && pass[0]) ? pass : s_pass;

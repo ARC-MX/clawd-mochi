@@ -263,7 +263,7 @@ smoothness for size rather than silently speeding a theme up.
 Playback rate comes from the pack, not from the firmware: each `.caf` stores a
 per-frame duration taken from the source GIF, so a set authored at 8 fps and one
 authored at 17 fps each play at the rate they were drawn for. The background
-colour follows `bg#RRGGBB`, and is a runtime setting — palette index 0 in every
+colour follows `bg#RRGGBB` over serial or BLE, and is stored in NVS — it survives a reboot — palette index 0 in every
 frame is transparent, so the colour baked into the `.caf` is never displayed.
 
 ### Logo animation duration

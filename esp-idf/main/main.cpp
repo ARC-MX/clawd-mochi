@@ -1788,6 +1788,15 @@ extern "C" void app_main() {
   serialInit();             // also starts BLE, when ENABLE_BLE
   animInit();
   animSetBackground(animSurround);
+  // A stored background beats initColours()'s default: the colour picked last
+  // time is what the pet comes back with. After animInit(), so the player holds
+  // the value before its first frame.
+  uint16_t storedBg = 0;
+  if (settingsGetBg(&storedBg)) {
+    animSurround = storedBg;
+    animSetBackground(animSurround);
+    ESP_LOGI(TAG, "background restored from storage (0x%04x)", (unsigned)storedBg);
+  }
 
   // The corner icon waits for the pet to own the panel: currentView is already
   // VIEW_ANIM through the boot card and the WiFi info screen, so it needs a
@@ -1836,6 +1845,23 @@ extern "C" void app_main() {
     if (bgDirty && currentView == VIEW_ANIM) {
       bgDirty = false;
       tft.fillScreen(animSurround);
+    }
+
+    // Store a new background, throttled. The picker fires continuously while
+    // dragging and this is flash, so writes are at most one per two seconds — and
+    // the value a drag ends on is not dropped, only delayed until the throttle
+    // allows it.
+    static uint16_t   persistedBg = 0;
+    static TickType_t bgStoredAt  = 0;
+    static bool       bgAdopted   = false;
+    if (!bgAdopted) {                   // whatever boot settled on is what is stored
+      persistedBg = animSurround;
+      bgAdopted = true;
+    }
+    if (animSurround != persistedBg &&
+        (bgStoredAt == 0 || (xTaskGetTickCount() - bgStoredAt) >= pdMS_TO_TICKS(2000))) {
+      if (settingsSetBg(animSurround)) persistedBg = animSurround;
+      bgStoredAt = xTaskGetTickCount();
     }
     delayMs(200);
   }

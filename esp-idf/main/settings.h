@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +36,15 @@ bool settingsSave(const char* name, const char* pass, const char** err);
 
 // Stores the factory defaults.
 bool settingsReset(const char** err);
+
+// The pet's background colour, RGB565 — the colour that shows through the
+// artwork's transparent field. Not part of settingsLoad() because its default
+// lives with the other colours in main.cpp: the getter reports whether a value
+// was ever stored, and the caller falls back to its own default.
+bool settingsGetBg(uint16_t* colour);
+// Stores it. Skips the write when the value is already what is stored, so the
+// caller can call it on a timer without wearing the flash out.
+bool settingsSetBg(uint16_t colour);
 
 // True when the given name/password would be accepted.
 bool settingsNameValid(const char* name);
