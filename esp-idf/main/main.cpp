@@ -133,26 +133,6 @@ static bool     autoAsleep    = false;  // we napped it, the host did not ask
 // Called by every command path. Cheap enough to call unconditionally.
 static void noteActivity() { lastActivity = xTaskGetTickCount(); }
 
-// Which transport last delivered a command, and when. Stamped once, at the
-// transport — see cmd_queue.h for why the tag rides in the queue item for
-// serial and BLE. Drives the link icon on the animation view.
-static uint8_t    lastTransport     = CMD_SRC_NONE;
-static TickType_t lastTransportTick = 0;
-
-// Called by the queued readers (which know the tag) and by the two paths that
-// skip the queue: `img`, which owns the port itself, and the HTTP routes.
-static void noteTransport(uint8_t src) {
-  lastTransport     = src;
-  lastTransportTick = xTaskGetTickCount();
-}
-
-// The HTTP routes run inline on the httpd task — they need their reply in the
-// same call — so they cannot carry a tag through the queue like the others.
-static void noteHttp() {
-  noteTransport(CMD_SRC_HTTP);
-  noteActivity();
-}
-
 // The one way to change state: cancels any auto-sleep and restarts the timer,
 // then hands off to the player. Explicitly asking for a state is itself
 // activity, so callers need not call noteActivity() as well.
@@ -655,7 +635,6 @@ static void applyCommand(char c) {
 }
 
 static esp_err_t routeCmd(httpd_req_t* req) {
-  noteHttp();
   char k[8] = {0};
   if (!getQueryArg(req, "k", k, sizeof(k)) || k[0] == 0) {
     sendJson(req, "{\"e\":1}");
@@ -667,7 +646,7 @@ static esp_err_t routeCmd(httpd_req_t* req) {
 }
 
 static esp_err_t routeChar(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   if (!termMode) { sendJson(req, "{\"ok\":1}"); return ESP_OK; }
   char c[8] = {0};
   if (getQueryArg(req, "c", c, sizeof(c)) && c[0] != 0) {
@@ -681,7 +660,7 @@ static esp_err_t routeChar(httpd_req_t* req) {
 }
 
 static esp_err_t routeSpeed(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char v[8] = {0};
   if (getQueryArg(req, "v", v, sizeof(v))) {
     int s = atoi(v);
@@ -695,7 +674,7 @@ static esp_err_t routeSpeed(httpd_req_t* req) {
 }
 
 static esp_err_t routeRedraw(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     // Pet background only. This used to also set drawBgColor, which conflated
@@ -714,7 +693,7 @@ static esp_err_t routeRedraw(httpd_req_t* req) {
 }
 
 static esp_err_t routeCanvas(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char on[8] = {0};
   if (getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0) {
     currentView = VIEW_DRAW;
@@ -725,7 +704,7 @@ static esp_err_t routeCanvas(httpd_req_t* req) {
 }
 
 static esp_err_t routeDrawClear(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     drawBgColor = hexToRgb565(bg);
@@ -740,7 +719,7 @@ static esp_err_t routeDrawClear(httpd_req_t* req) {
 }
 
 static esp_err_t routeDrawStroke(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char pen[16] = {0};
   char pts[512] = {0};
   if (!getQueryArg(req, "pen", pen, sizeof(pen)) ||
@@ -776,7 +755,7 @@ static esp_err_t routeDrawStroke(httpd_req_t* req) {
 }
 
 static esp_err_t routeBacklight(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char on[8] = {0};
   bool enable = getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0;
   setBacklight(enable);
@@ -802,7 +781,7 @@ static esp_err_t routeBacklight(httpd_req_t* req) {
 // pointing at files that are gone for the duration of the upload; the player is
 // stopped here so it does not spend the transfer logging that.
 static esp_err_t routeThemeBegin(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   animPlayState("");         // stop the player while its files are missing
 
   unsigned freed = 0;
@@ -837,7 +816,7 @@ static esp_err_t routeThemeBegin(httpd_req_t* req) {
 // allows. A failure partway leaves a half-written theme, so the commit step is
 // separate and explicit.
 static esp_err_t routeThemePut(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char name[THEME_NAME_MAX] = {0};
   if (!getQueryArg(req, "name", name, sizeof(name)) || name[0] == 0) {
     sendJson(req, "{\"e\":\"name\"}");
@@ -892,7 +871,7 @@ static esp_err_t routeThemePut(httpd_req_t* req) {
 // player. Without the sweep the previous set's files would still be occupying
 // the partition — and there is no room for both.
 static esp_err_t routeThemeCommit(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
 
   char manifest[2048];
   size_t mLen = 0;
@@ -949,7 +928,7 @@ static esp_err_t routeThemeCommit(httpd_req_t* req) {
 // Switches which animation plays. Separate from /cmd, which only carries the
 // single-character verbs the original sketch defined.
 static esp_err_t routeThemeState(httpd_req_t* req) {
-  noteHttp();
+  noteActivity();
   char name[THEME_NAME_MAX] = {0};
   if (!getQueryArg(req, "name", name, sizeof(name))) {
     sendJson(req, "{\"e\":\"name\"}");
@@ -1132,9 +1111,6 @@ static void serialReply(const char* s) {
 static void serialReceiveImage() {
   currentView = VIEW_DRAW;
   termMode = false;
-  // Owns the port for the whole transfer, so it never reaches the queue and has
-  // to stamp its own transport.
-  noteTransport(CMD_SRC_SERIAL);
   serialReply("ready");
 
   static uint16_t band[DISP_W * IMG_BAND_ROWS];
@@ -1331,7 +1307,6 @@ static void cmdWorkerTask(void* arg) {
   while (true) {
     if (xQueueReceive(s_cmdQueue, &item, portMAX_DELAY) == pdTRUE) {
       ESP_LOGI(TAG, "cmd[%s]: %s", cmdSrcName(item.src), item.line);
-      noteTransport(item.src);
       serialHandleLine(item.line);
     }
   }
@@ -1392,10 +1367,18 @@ static void serialInit() {
 }
 
 // ── Corner transport icon (VIEW_ANIM only) ────────────────────
-// Two layers. WHICH transport shows is "who last delivered a command", held for
-// ICON_HOLD_MS of silence and then hidden entirely; the COLOUR is that
-// transport's real link state — accent while the link is actually up, muted grey
-// when the command arrived but the link has since gone away.
+// Visibility is the link's own state, not command traffic: a transport that is
+// connected shows, and the link whose state changed most recently holds the
+// corner for ICON_GRACE_MS. The colour carries the same distinction — accent
+// while the link is up, muted grey during the grace window after it goes.
+//
+// That window is what makes BLE visible at all: the hook connects, writes and
+// disconnects inside 0.4 s, so "connected" alone would be a flicker. Letting a
+// still-connected link outrank the window would hide it just as completely, since
+// the cable is usually attached — hence changedAt, not priority, decides. With
+// the cable in you get accent USB at rest, a grey BT rune for 5 s after each hook
+// event, and 5 s of WiFi when a phone joins or leaves the AP. s_iconPriority only
+// breaks ties.
 //
 // Redrawn unconditionally on every housekeeping tick rather than tracked to a
 // change. Five independent paths paint over that corner — the player's
@@ -1411,27 +1394,81 @@ static void serialInit() {
 // stop at x<=221. That is a property of this pack set, not of the format — the
 // converter's 12 px default margin only guarantees x<=227, and `--no-fit` can
 // produce full-bleed art, which would overwrite the icon every frame.
-#define ICON_HOLD_MS 10000
+#define ICON_GRACE_MS 5000
 #define ICON_X (DISP_W - 18)     // 222
 #define ICON_Y 2
 
+// Which link gets the corner when two changed inside the same window, or when
+// none has changed recently and several are up.
+static const uint8_t s_iconPriority[] = {
+    CMD_SRC_SERIAL, CMD_SRC_BLE, CMD_SRC_HTTP,
+};
+
+typedef struct {
+  bool       live;       // up as of the last tick
+  TickType_t changedAt;  // last transition, either way; 0 = never seen
+} link_t;
+
+static link_t  s_links[CMD_SRC_COUNT];
 static bool    s_iconShown  = false;
 static uint8_t s_iconLogged = CMD_SRC_NONE;   // src, | 0x80 while live
 
+static bool linkConnected(uint8_t src) {
+  switch (src) {
+    case CMD_SRC_SERIAL: return usb_serial_jtag_is_connected();
+    case CMD_SRC_BLE:    return bleCliConnCount() > 0;
+    case CMD_SRC_HTTP:   return wifiStaCount() > 0;
+    default:             return false;
+  }
+}
+
+static ti_glyph_t linkGlyph(uint8_t src) {
+  switch (src) {
+    case CMD_SRC_SERIAL: return TI_USB;
+    case CMD_SRC_BLE:    return TI_BT;
+    default:             return TI_WIFI;
+  }
+}
+
 static void transportIconTick() {
+  const TickType_t now = xTaskGetTickCount();
+  const size_t n = sizeof(s_iconPriority) / sizeof(s_iconPriority[0]);
+
+  // Every link, every tick — including while another view owns the panel, so a
+  // grace window cannot stall behind a view change and reappear stale.
+  for (size_t i = 0; i < n; i++) {
+    const uint8_t src = s_iconPriority[i];
+    link_t& l = s_links[src];
+    const bool up = linkConnected(src);
+    if (up != l.live) {
+      l.live      = up;
+      l.changedAt = now;
+    }
+  }
+
   if (currentView != VIEW_ANIM) {
-    // Another view owns the panel now and its own paint covered the corner.
-    // Erasing here would punch a 16x16 animSurround hole in the code view's
-    // dark background or in an image pushed with `img` — just forget it.
+    // Another view owns the panel and its own paint covered the corner. Erasing
+    // here would punch a 16x16 animSurround hole in the code view's dark
+    // background or in an image pushed with `img` — just forget it.
     s_iconShown  = false;
     s_iconLogged = CMD_SRC_NONE;
     return;
   }
 
-  const bool recent =
-      lastTransport != CMD_SRC_NONE &&
-      (xTaskGetTickCount() - lastTransportTick) < pdMS_TO_TICKS(ICON_HOLD_MS);
-  if (!recent) {
+  // Whoever changed last holds the corner for the grace window; otherwise the
+  // highest-priority link that is up. The style is always the link's own state.
+  uint8_t pick = CMD_SRC_NONE;
+  for (size_t i = 0; i < n && pick == CMD_SRC_NONE; i++) {
+    const link_t& l = s_links[s_iconPriority[i]];
+    if (l.changedAt != 0 && (now - l.changedAt) < pdMS_TO_TICKS(ICON_GRACE_MS)) {
+      pick = s_iconPriority[i];
+    }
+  }
+  for (size_t i = 0; i < n && pick == CMD_SRC_NONE; i++) {
+    if (s_links[s_iconPriority[i]].live) pick = s_iconPriority[i];
+  }
+
+  if (pick == CMD_SRC_NONE) {
     if (s_iconShown) {
       tft.fillRect(ICON_X, ICON_Y, TI_W, TI_H, animSurround);
       s_iconShown = false;
@@ -1441,25 +1478,17 @@ static void transportIconTick() {
     return;
   }
 
-  // The style is the link's real state, not how recent the command was.
-  ti_glyph_t glyph;
-  bool live;
-  switch (lastTransport) {
-    case CMD_SRC_SERIAL: live = usb_serial_jtag_is_connected(); glyph = TI_USB;  break;
-    case CMD_SRC_BLE:    live = bleCliConnCount() > 0;          glyph = TI_BT;   break;
-    case CMD_SRC_HTTP:   live = wifiStaCount() > 0;             glyph = TI_WIFI; break;
-    default:             return;
-  }
-  transportIconDraw(tft, ICON_X, ICON_Y, glyph,
+  const bool live = s_links[pick].live;
+  transportIconDraw(tft, ICON_X, ICON_Y, linkGlyph(pick),
                     live ? C_ORANGE : C_MUTED, animSurround);
   s_iconShown = true;
 
   // One line per visible change. The panel has no read-back path, so this is
   // how the icon's logic gets checked without a camera pointed at it.
-  const uint8_t now = (uint8_t)(lastTransport | (live ? 0x80 : 0x00));
-  if (now != s_iconLogged) {
-    s_iconLogged = now;
-    ESP_LOGI(TAG, "icon: %s %s", cmdSrcName(lastTransport), live ? "live" : "recent");
+  const uint8_t state = (uint8_t)(pick | (live ? 0x80 : 0x00));
+  if (state != s_iconLogged) {
+    s_iconLogged = state;
+    ESP_LOGI(TAG, "icon: %s %s", cmdSrcName(pick), live ? "live" : "lost");
   }
 }
 

@@ -15,6 +15,7 @@ typedef enum {
   CMD_SRC_SERIAL = 0,   // USB-Serial-JTAG (/dev/ttyACM0 on the host)
   CMD_SRC_BLE    = 1,   // NimBLE GATT write
   CMD_SRC_HTTP   = 2,   // esp_http_server route
+  CMD_SRC_COUNT  = 3,   // how many real sources there are, not a source
 } cmd_src_t;
 
 // "Nothing has driven the pet yet" — for the link indicator, never a queue tag.

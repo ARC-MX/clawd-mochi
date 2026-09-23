@@ -3,7 +3,7 @@
 > 状态：**方案 D（BLE）与 E（USB 串口）已实现并接入 Claude Code hooks**（`tools/mochi_hook.py` 已注册进 `~/.claude/settings.json` 的 UserPromptSubmit / PreToolUse / Stop）；方案 A（WiFi STA）仍为设计稿
 > 目标：让 ESP32 上的实体设备实时反映 Claude Code 的状态（空闲 / 思考中 / 正在用工具 / 需要授权）
 >
-> 设备端在动画界面右上角有一个 16×16 的**来源图标**：显示最近驱动它的传输（USB / BLE / WiFi），约 10 秒无命令后隐藏；颜色区分该链路此刻是否真的连着（强调色 = 连着，灰色 = 只是最近来过）。
+> 设备端在动画界面右上角有一个 16×16 的**链路图标**：哪条链路（USB / BLE / WiFi）连着就亮哪个，**最近变化的那条**占住这个角 5 秒；颜色区分当前状态（强调色 = 此刻连着，灰色 = 刚刚断开）。两条同时变化时按 USB > BLE > WiFi 取舍，所以插着线时常态是 USB 图标，而每次 hook 的 BLE 连接会在角上留 5 秒灰色的蓝牙符文。
 
 ---
 
