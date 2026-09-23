@@ -27,6 +27,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +38,10 @@ SERIAL = [PY, os.path.join(BASE, "mochi.py")]
 BLE = [PY, os.path.join(BASE, "mochi_ble.py")]
 
 DEBOUNCE_MS = 300
-CACHE = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp",
+# gettempdir(), not "/tmp": on Windows the latter resolves to a drive-root path
+# that does not exist, and every write failed silently, so the debounce never
+# worked there.
+CACHE = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(),
                      "mochi-hook-cache.json")
 
 # Claude Code event -> themed animation state (see data/theme/manifest.txt).
