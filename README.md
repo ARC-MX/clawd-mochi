@@ -72,6 +72,10 @@ Clawd Mochi sits on your desk and shows animated expressions on a small color di
 
 ## Software setup
 
+> **On Windows?** There is a step-by-step guide for using the device (and, if you
+> want, building the firmware and wiring it into Claude Code) from a Windows PC:
+> [WINDOWS-SETUP.md](WINDOWS-SETUP.md).
+
 ### Step 1 — Install Arduino IDE
 
 Download [Arduino IDE 2.x](https://www.arduino.cc/en/software) and install it.
