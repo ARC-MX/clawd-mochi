@@ -73,7 +73,7 @@ Clawd Mochi 放在桌面上，用一块小彩屏播放动画表情。连上它�
 
 ## 软件安装
 
-> **在 Windows 上？** 我们另有一份分步说明，覆盖"只使用设备"（插 USB、连热点、开浏览器 —— 不用装任何开发工具）、"在 Windows 上编译并烧录固件"、以及"把它接进 Claude Code"：[中文（默认）](WINDOWS-SETUP.md) · [English](WINDOWS-SETUP.en.md)。里面还附了一段可以直接丢给 AI 的**提示词**，让它替你做完整套初始化。
+> **在 Windows 上？** 我们另有一份使用说明：怎么插上、连热点、用浏览器控制这台设备，以及（可选）怎么让它跟着 Claude Code 动 —— **不用装任何开发工具、也不用自己编译固件**。里面还附了一段可以直接丢给 AI 的**提示词**，让它替你把初始化做完：[中文（默认）](WINDOWS-SETUP.md) · [English](WINDOWS-SETUP.en.md)。
 
 ### 第 1 步 —— 安装 Arduino IDE
 
