@@ -73,53 +73,18 @@ Clawd Mochi sits on your desk and shows animated expressions on a small color di
 
 ---
 
-## Software setup
+## Software
 
-> **On Windows?** There is a step-by-step guide to using the device from a Windows
-> PC — plugging it in, joining its hotspot, the web controller, and optionally making
-> it follow Claude Code. **No toolchain, no compiling the firmware**, and it includes a
-> prompt you can hand to an AI to do the setup for you:
-> [中文（默认）](WINDOWS-SETUP.md) · [English](WINDOWS-SETUP.en.md).
+The device runs **ESP-IDF** firmware (the `esp-idf/` directory), not an Arduino sketch.
+`clawd_mochi.ino` in this repository is the original single-file Arduino version, kept as a
+historical record.
 
-### Step 1 — Install Arduino IDE
-
-Download [Arduino IDE 2.x](https://www.arduino.cc/en/software) and install it.
-
-### Step 2 — Add ESP32 board support
-
-1. Open Arduino IDE → **File → Preferences**
-2. In "Additional boards manager URLs" paste:
-   ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-   ```
-3. Go to **Tools → Board → Boards Manager**, search `esp32`, install **"esp32 by Espressif Systems"**
-
-### Step 3 — Install libraries
-
-Go to **Tools → Library Manager** and install both:
-
-- `Adafruit GFX Library`
-- `Adafruit ST7735 and ST7789 Library`
-
-### Step 4 — Configure board settings
-
-Go to **Tools** and set:
-
-| Setting         | Value                   |
-| --------------- | ----------------------- |
-| Board           | ESP32C3 Dev Module      |
-| USB CDC On Boot | **Enabled** ← important |
-| CPU Frequency   | 160 MHz                 |
-| Upload Speed    | 921600                  |
-
-### Step 5 — Upload the sketch
-
-1. Clone or download this repo
-2. Open `clawd_mochi/clawd_mochi.ino` in Arduino IDE
-3. Connect the ESP32 via USB-C
-4. Select the correct port under **Tools → Port**
-5. Click **Upload** (→ arrow button)
-6. Wait for "Hard resetting via RTS pin..." — this means success
+- **If you have a device**: there is nothing to compile — plug in USB, join its hotspot, drive it
+  from a browser. See *How to use it* below, or the Windows guide, which also carries a prompt you
+  can hand to an AI: [English](WINDOWS-SETUP.en.md) · [中文（默认）](WINDOWS-SETUP.md)
+- **If you are building one, or changing the firmware**: see
+  [esp-idf/README.md](esp-idf/README.md) — the differences from the Arduino sketch, the boot
+  sequence, and the full serial/BLE command table
 
 ---
 
@@ -302,7 +267,7 @@ Contributions are very welcome! Here are some ideas:
 - **OTA updates** — add over-the-air firmware updates
 - **MQTT / Home Assistant** — connect to smart home platforms
 
-To contribute: fork the repo, make your changes, and open a pull request. Please keep the single-file structure (`clawd_mochi.ino`) so it stays easy for beginners to flash.
+To contribute: fork the repo, make your changes, and open a pull request. Please aim changes at `esp-idf/` — that is the firmware the device actually runs; `clawd_mochi.ino` is kept as an archive of the original.
 
 ## License
 

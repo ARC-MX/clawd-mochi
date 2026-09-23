@@ -71,51 +71,12 @@ Clawd Mochi 放在桌面上，用一块小彩屏播放动画表情。连上它�
 
 ---
 
-## 软件安装
+## 软件
 
-> **在 Windows 上？** 我们另有一份使用说明：怎么插上、连热点、用浏览器控制这台设备，以及（可选）怎么让它跟着 Claude Code 动 —— **不用装任何开发工具、也不用自己编译固件**。里面还附了一段可以直接丢给 AI 的**提示词**，让它替你把初始化做完：[中文（默认）](WINDOWS-SETUP.md) · [English](WINDOWS-SETUP.en.md)。
+这台设备上跑的是 **ESP-IDF** 固件（`esp-idf/` 目录），不是 Arduino sketch。仓库里的 `clawd_mochi.ino` 是最初的 Arduino 单文件版本，保留作为历史。
 
-### 第 1 步 —— 安装 Arduino IDE
-
-下载 [Arduino IDE 2.x](https://www.arduino.cc/en/software) 并安装。
-
-### 第 2 步 —— 添加 ESP32 开发板支持
-
-1. 打开 Arduino IDE → **文件 → 首选项**
-2. 在 "附加开发板管理器地址" 里粘贴：
-   ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-   ```
-3. 进入 **工具 → 开发板 → 开发板管理器**，搜索 `esp32`，安装 **"esp32 by Espressif Systems"**
-
-### 第 3 步 —— 安装库
-
-进入 **工具 → 管理库**，两个都装：
-
-- `Adafruit GFX Library`
-- `Adafruit ST7735 and ST7789 Library`
-
-### 第 4 步 —— 配置开发板选项
-
-进入 **工具**，按下表设置：
-
-| 选项 | 值 |
-| --------------- | ----------------------- |
-| Board | ESP32C3 Dev Module |
-| USB CDC On Boot | **Enabled** ← 重要 |
-| CPU Frequency | 160 MHz |
-| Upload Speed | 921600 |
-
-### 第 5 步 —— 上传
-
-1. 克隆或下载本仓库
-2. 用 Arduino IDE 打开 `clawd_mochi/clawd_mochi.ino`
-3. 用 USB-C 线连接 ESP32
-4. 在 **工具 → 端口** 里选择正确的端口
-5. 点 **上传**（→ 箭头按钮）
-6. 看到 "Hard resetting via RTS pin..." 就是成功了
-
-> 说明：仓库里的 `clawd_mochi.ino` 是最初的 Arduino 单文件版本，保留它是为了让初学者能一把烧进去。**这台设备实际跑的是 ESP-IDF 移植版**（`esp-idf/` 目录），它多出主题动画包、蓝牙命令通道、开机卡片、右上角链路图标、设备名/密码存储等功能，USB 串口与蓝牙共享同一套命令。见 [esp-idf/README.md](esp-idf/README.md)。
+- **拿到成品设备的人**：不需要编译任何东西 —— 插上 USB、连它的热点、用浏览器控制，见下一节「怎么用它」；Windows 上另有一份分步说明（含一段可以让 AI 代做的提示词）：[中文（默认）](WINDOWS-SETUP.md) · [English](WINDOWS-SETUP.en.md)
+- **要自己做一台、或改固件的人**：见 [esp-idf/README.md](esp-idf/README.md)（与 Arduino 版的差异、启动流程、完整的串口/BLE 命令表）
 
 ---
 
@@ -265,7 +226,7 @@ delayMs(24);       // 越小越快
 - **OTA 升级** —— 支持无线升级固件
 - **MQTT / Home Assistant** —— 接入智能家居平台
 
-参与方式：fork 本仓库、改好、提 PR。请保持单文件结构（`clawd_mochi.ino`），这样初学者仍然能一把烧进去。
+参与方式：fork 本仓库、改好、提 PR。改动请针对 `esp-idf/` —— 那是设备实际在跑的固件；`clawd_mochi.ino` 作为最初版本的存档保留。
 
 ## 许可证
 
