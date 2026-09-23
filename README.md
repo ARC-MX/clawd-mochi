@@ -5,17 +5,19 @@
 
 # Clawd Mochi 🦀🤖
 
-A physical desk companion inspired by **Clawd** — the pixel-crab mascot of Claude Code by Anthropic. An ESP32-C3 drives a 1.54" color TFT display and hosts a mobile web controller — no app, no internet, no cloud required.
+**English: [README.en.md](README.en.md)** — 本文件是默认版本；两份如有出入，以这份为准。
 
-**Cost: ~$6–8 · Build time: ~1 hour · Skill level: Beginner**
+一个实体桌面摆件，灵感来自 **Clawd** —— Anthropic 的 Claude Code 那只像素螃蟹吉祥物。一块 ESP32-C3 驱动 1.54 寸彩屏，并自带一个手机网页控制器 —— 不需要装 App、不需要联网、不依赖云服务。
 
-Support the project on Instagram: [![Instagram](https://img.shields.io/badge/Instagram-E4405F?logo=instagram&logoColor=fff&style=for-the-badge)](https://instagram.com/clawd.mochi)
+**成本：约 ¥50 · 制作时间：约 1 小时 · 难度：入门**
 
-📦 3D printable case on MakerWorld: [https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
+Instagram 支持项目：[![Instagram](https://img.shields.io/badge/Instagram-E4405F?logo=instagram&logoColor=fff&style=for-the-badge)](https://instagram.com/clawd.mochi)
+
+📦 可打印外壳在 MakerWorld：[https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
 
 ---
 
-> ⚠️ This is an independent fan project. It is not affiliated with, sponsored by, or endorsed by Anthropic. "Claude" and "Clawd" are trademarks of Anthropic.
+> ⚠️ 这是一个独立的粉丝项目，与 Anthropic 无隶属、赞助或背书关系。"Claude" 与 "Clawd" 是 Anthropic 的商标。
 
 ---
 
@@ -25,285 +27,251 @@ Support the project on Instagram: [![Instagram](https://img.shields.io/badge/Ins
   <img src="pics/clawd_mochi_claude_code.jpeg" alt="Claude Code view" width="500"/>
 </p>
 
-## What it does
+## 它能做什么
 
-Clawd Mochi sits on your desk and shows animated expressions on a small color display. You control it from any phone or browser by connecting to its built-in WiFi hotspot:
+Clawd Mochi 放在桌面上，用一块小彩屏播放动画表情。连上它自带的热点，就能用手机或电脑的浏览器控制：
 
-- **Themed animations** — the pet's expressions are animated stickers played from
-  the filesystem, so a theme can be swapped without reflashing the firmware
-  (`idle`, `thinking`, `working`, `done`, `error`, `sleep`, and more)
-- **Claude Code** — displays "Claude Code" with an interactive terminal
-- **Canvas** — draw anything on the display from your phone in real time
+- **主题动画** —— 宠物的表情是从文件系统里读出来播放的动画贴纸，换一套主题不必重新烧录固件
+  （`idle`、`thinking`、`working`、`done`、`error`、`sleep` 等等）
+- **Claude Code** —— 显示 "Claude Code" 界面，带一个可交互的小终端
+- **画布** —— 用手机在屏幕上实时画画
 
 ---
 
-## Parts list
+## 元器件清单
 
-| Part                | Spec                             | ~Price |
+| 元件 | 规格 | 参考价 |
 | ------------------- | -------------------------------- | ------ |
-| ESP32-C3 Super Mini | microcontroller with WiFi        | ~$2.50 |
-| ST7789 1.54" TFT    | 240×240 SPI color display        | ~$3.00 |
-| 8 short wires       | 8–10 cm Dupont / jumper wires    | ~$0.50 |
-| 2× M2×6mm screws    | to mount display bezel           | ~$0.10 |
-| Double-sided tape   | to secure components inside case | ~$0.10 |
-| USB-C cable         | for power                        | —      |
-| 3D printed case     | PLA or PETG, ~30g                | ~$0.50 |
+| ESP32-C3 Super Mini | 带 WiFi 的微控制器 | ¥18 |
+| ST7789 1.54" TFT | 240×240 SPI 彩屏 | ¥22 |
+| 8 根短线 | 8–10 cm 杜邦线 | ¥4 |
+| 2× M2×6mm 螺丝 | 固定屏幕压边 | ¥1 |
+| 双面胶 | 把元件固定在壳内 | ¥1 |
+| USB-C 线 | 供电 | — |
+| 3D 打印外壳 | PLA 或 PETG，约 30g | ¥4 |
 
-**Total: ~$7–8**
+**合计：约 ¥50**
 
 ---
 
-## Wiring
+## 接线
 
-> ⚠️ Connect VCC to **3.3V only** — never 5V. Use GPIO 8 and 10 for SPI (hardware SPI, fast). Do not use GPIO 6/7 for SPI.
+> ⚠️ VCC 只能接 **3.3V**，绝不要接 5V。SPI 用 GPIO 8 和 10（硬件 SPI，速度快）。不要用 GPIO 6/7 做 SPI。
 
-| Display pin | ESP32-C3 GPIO  | Wire color (suggested) |
+| 屏幕引脚 | ESP32-C3 GPIO | 建议线色 |
 | ----------- | -------------- | ---------------------- |
-| VCC         | 3V3            | Red                    |
-| GND         | GND            | Black                  |
-| SDA         | GPIO 10 (MOSI) | Orange                 |
-| SCL         | GPIO 8 (SCK)   | Green                  |
-| RES         | GPIO 2         | Purple                 |
-| DC          | GPIO 1         | Blue                   |
-| CS          | GPIO 4         | White                  |
-| BL          | GPIO 3         | Yellow                 |
+| VCC | 3V3 | 红 |
+| GND | GND | 黑 |
+| SDA | GPIO 10 (MOSI) | 橙 |
+| SCL | GPIO 8 (SCK) | 绿 |
+| RES | GPIO 2 | 紫 |
+| DC | GPIO 1 | 蓝 |
+| CS | GPIO 4 | 白 |
+| BL | GPIO 3 | 黄 |
 
 ---
 
-## Software setup
+## 软件安装
 
-> **On Windows?** There is a step-by-step guide for using the device (and, if you
-> want, building the firmware and wiring it into Claude Code) from a Windows PC:
-> [English](WINDOWS-SETUP.en.md) · [中文](WINDOWS-SETUP.md).
+> **在 Windows 上？** 我们另有一份分步说明，覆盖"只使用设备"（插 USB、连热点、开浏览器 —— 不用装任何开发工具）、"在 Windows 上编译并烧录固件"、以及"把它接进 Claude Code"：[中文（默认）](WINDOWS-SETUP.md) · [English](WINDOWS-SETUP.en.md)。里面还附了一段可以直接丢给 AI 的**提示词**，让它替你做完整套初始化。
 
-### Step 1 — Install Arduino IDE
+### 第 1 步 —— 安装 Arduino IDE
 
-Download [Arduino IDE 2.x](https://www.arduino.cc/en/software) and install it.
+下载 [Arduino IDE 2.x](https://www.arduino.cc/en/software) 并安装。
 
-### Step 2 — Add ESP32 board support
+### 第 2 步 —— 添加 ESP32 开发板支持
 
-1. Open Arduino IDE → **File → Preferences**
-2. In "Additional boards manager URLs" paste:
+1. 打开 Arduino IDE → **文件 → 首选项**
+2. 在 "附加开发板管理器地址" 里粘贴：
    ```
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
    ```
-3. Go to **Tools → Board → Boards Manager**, search `esp32`, install **"esp32 by Espressif Systems"**
+3. 进入 **工具 → 开发板 → 开发板管理器**，搜索 `esp32`，安装 **"esp32 by Espressif Systems"**
 
-### Step 3 — Install libraries
+### 第 3 步 —— 安装库
 
-Go to **Tools → Library Manager** and install both:
+进入 **工具 → 管理库**，两个都装：
 
 - `Adafruit GFX Library`
 - `Adafruit ST7735 and ST7789 Library`
 
-### Step 4 — Configure board settings
+### 第 4 步 —— 配置开发板选项
 
-Go to **Tools** and set:
+进入 **工具**，按下表设置：
 
-| Setting         | Value                   |
+| 选项 | 值 |
 | --------------- | ----------------------- |
-| Board           | ESP32C3 Dev Module      |
-| USB CDC On Boot | **Enabled** ← important |
-| CPU Frequency   | 160 MHz                 |
-| Upload Speed    | 921600                  |
+| Board | ESP32C3 Dev Module |
+| USB CDC On Boot | **Enabled** ← 重要 |
+| CPU Frequency | 160 MHz |
+| Upload Speed | 921600 |
 
-### Step 5 — Upload the sketch
+### 第 5 步 —— 上传
 
-1. Clone or download this repo
-2. Open `clawd_mochi/clawd_mochi.ino` in Arduino IDE
-3. Connect the ESP32 via USB-C
-4. Select the correct port under **Tools → Port**
-5. Click **Upload** (→ arrow button)
-6. Wait for "Hard resetting via RTS pin..." — this means success
+1. 克隆或下载本仓库
+2. 用 Arduino IDE 打开 `clawd_mochi/clawd_mochi.ino`
+3. 用 USB-C 线连接 ESP32
+4. 在 **工具 → 端口** 里选择正确的端口
+5. 点 **上传**（→ 箭头按钮）
+6. 看到 "Hard resetting via RTS pin..." 就是成功了
+
+> 说明：仓库里的 `clawd_mochi.ino` 是最初的 Arduino 单文件版本，保留它是为了让初学者能一把烧进去。**这台设备实际跑的是 ESP-IDF 移植版**（`esp-idf/` 目录），它多出主题动画包、蓝牙命令通道、开机卡片、右上角链路图标、设备名/密码存储等功能，USB 串口与蓝牙共享同一套命令。见 [esp-idf/README.md](esp-idf/README.md)。
 
 ---
 
-## How to use it
+## 怎么用它
 
-### Connect and open the controller
+### 连上它，打开控制器
 
-1. Power the ESP32 via USB-C (any USB charger or power bank)
-2. Wait ~3 seconds for the boot animation to finish
-3. On your phone or computer, go to **WiFi settings**
-4. Connect to the network: **`ClaWD-Mochi`** · password: **`clawd1234`** (factory
-   defaults — the device card in the web UI changes both, and the same name is
-   used for the Bluetooth advertisement)
-5. Open a browser and go to **`http://192.168.4.1`**
+1. 用 USB-C 给它供电（任何 USB 充电器或充电宝都行）
+2. 等约 3 秒，开机动画结束
+3. 在手机或电脑的 **WiFi 设置** 里
+4. 连接网络 **`ClaWD-Mochi`** · 密码 **`clawd1234`**（出厂默认 —— 网页里的设备卡片能改这两项，同一个名字也用于蓝牙广播）
+5. 打开浏览器访问 **`http://192.168.4.1`**
 
-You should see the web controller:
+你会看到网页控制器：
 
 <img src="pics/clawd_mochi_webpage.jpeg" alt="Webpage view" width="500"/>
 
-### Controller features
+### 控制器功能
 
-| Button / control   | What it does                                    |
+| 按钮 / 控件 | 作用 |
 | ------------------ | ----------------------------------------------- |
-| Idle               | Plays the theme's resting animation             |
-| Done               | Plays the theme's finished animation            |
-| Claude Code        | Shows code display, opens terminal              |
-| Canvas             | Enter drawing mode — draw on display from phone |
-| Pet BG             | Background the pet shows through                |
-| Canvas BG          | Background of the drawing surface (separate)    |
-| Pen color          | Sets drawing color for canvas                   |
-| Display on/off     | Toggles the backlight                           |
-| Brightness         | Backlight level, 0-100% (stored on the device)   |
-| Expression         | Plays any state the mounted theme provides      |
-| Upload theme       | Replaces the pack on the device — see Customisation |
-| ✓ done (in canvas) | Exits canvas mode                               |
+| Idle | 播放主题的"空闲"动画 |
+| Done | 播放主题的"完成"动画 |
+| Claude Code | 显示代码界面，打开终端 |
+| Canvas | 进入绘画模式 —— 用手机在屏幕上画 |
+| Pet BG | 宠物透出来的底色（存 NVS，重启保留） |
+| Canvas BG | 画布的底色（与上面独立） |
+| Pen color | 画布画笔颜色 |
+| Display on/off | 背光开关 |
+| Brightness | 背光亮度 0–100%（存 NVS，重启保留） |
+| Expression | 播放主题提供的任意状态 |
+| Upload theme | 替换设备上的主题包 —— 见"自定义"一节 |
+| ✓ done（画布内） | 退出画布模式 |
 
-The pet also naps: with nothing driving it for two minutes it switches to the
-theme's `sleep` state, and wakes on the next state request. Any command restarts
-the timer, but only a state change rouses it — a status line should not. Change
-the interval with `sleepafter <seconds>` over serial or BLE (0 disables); it is
-not persisted, so a reboot returns to the 120 s default.
+宠物还会打盹：连续两分钟没有任何东西驱动它，就切到主题的 `sleep` 状态，下一次状态请求时醒来。任何命令都会重置这个计时，但只有**状态切换**能把它唤醒 —— 显示一行状态文字不该吵醒它。可以用串口或 BLE 发 `sleepafter <秒>` 改这个间隔（0 表示关闭）；它**不持久化**，重启回到默认的 120 秒。
 
 ---
 
-## 3D case
+## 3D 外壳
 
-The electronics case (body + back) is in the `clawd_mochi` model folder:
+电子件外壳（主体 + 后盖）在 `clawd_mochi` 模型目录里：
 
-| File                                                                                 | Description                               |
+| 文件 | 说明 |
 | ------------------------------------------------------------------------------------ | ----------------------------------------- |
-| [`./models/clawd_mochi/clawd_mochi_v1.stl`](./models/clawd_mochi/clawd_mochi_v1.stl) | Main case layout with body and back parts |
+| [`./models/clawd_mochi/clawd_mochi_v1.stl`](./models/clawd_mochi/clawd_mochi_v1.stl) | 主体外壳（含前壳与后盖） |
 
-### Print settings
+### 打印参数
 
-| Setting      | Value                               |
+| 参数 | 值 |
 | ------------ | ----------------------------------- |
-| Material     | PLA or PETG                         |
-| Layer height | 0.15–0.20 mm                        |
-| Infill       | 15% gyroid                          |
-| Supports     | Yes — for display window overhang   |
-| Orientation  | Face-down, flat back on build plate |
+| 材料 | PLA 或 PETG |
+| 层高 | 0.15–0.20 mm |
+| 填充 | 15% gyroid |
+| 支撑 | 需要 —— 屏幕窗口有悬空 |
+| 摆放 | 面朝下，背面平贴打印板 |
 
-Suggested colors: orange PLA for body, matte black for back plate.
+建议配色：主体橙色 PLA，后盖哑光黑。
 
-You can also download the models from MakerWorld: [https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
+也可以从 MakerWorld 下载模型：[https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
 
-### 3D Clawd (no electronics)
+### 纯 3D 版 Clawd（不含电子件）
 
-If you just want a display piece, use the separate 3D Clawd model (no screen or electronics cutouts).
+如果你只想要一个摆件，用单独的 3D Clawd 模型（没有屏幕和电子件的开孔）。
 
 <img src="pics/clawd_3D_squished_eyes_4_3.png" alt="3D printed Clawd model with squished eyes" width="500"/>
 
-Model files:
+模型文件：
 
-| File | Description |
+| 文件 | 说明 |
 | ---- | ----------- |
-| [`./models/clawd_3d/clawd_3D_no_AMS.stl`](./models/clawd_3d/clawd_3D_no_AMS.stl) | Original Clawd 3D model |
-| [`./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl`](./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl) | Squished eyes variant |
+| [`./models/clawd_3d/clawd_3D_no_AMS.stl`](./models/clawd_3d/clawd_3D_no_AMS.stl) | 原始 Clawd 3D 模型 |
+| [`./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl`](./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl) | 眯眼版本 |
 
-You can also download the models from MakerWorld: [https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183](https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183)
-
----
-
-## Assembly tips
-
-1. Print the case file (body + back) and test-fit the display before gluing anything
-2. Thread the 8 wires through the back plate slot before soldering
-3. Use double-sided tape to fix the ESP32 against the inside of the back plate
-4. Secure the display with 2× M2×6mm screws through the bezel holes
-5. Route the USB-C cable through the back plate slot and snap the back on
+也可以从 MakerWorld 下载：[https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183](https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183)
 
 ---
 
-## Customisation
+## 组装提示
 
-### Theme (animations)
+1. 先打印外壳（主体 + 后盖），**先试装屏幕再上胶**
+2. 焊接前先把 8 根线穿过后盖的过线槽
+3. 用双面胶把 ESP32 固定在后盖内侧
+4. 用 2× M2×6mm 螺丝穿过压边孔固定屏幕
+5. USB-C 线走线槽引出，扣上后盖
 
-The pet's expressions come from `esp-idf/data/theme/`: a plain-text manifest maps
-state names to `.caf` animation files, so you can change what a state looks like
-(or add one) by editing files on the device — no firmware change.
+---
+
+## 自定义
+
+### 主题（动画）
+
+宠物的表情来自 `esp-idf/data/theme/`：一个纯文本 manifest 把状态名映射到 `.caf` 动画文件，所以你可以**直接在设备上编辑文件**来改变某个状态的样子（或者新增一个状态）—— 不需要动固件。
 
 ```
-esp-idf/data/theme/manifest.txt   # state=file, one per line, plus scale=N
-esp-idf/data/theme/*.caf          # converted from GIF by tools/gif2caf.py
+esp-idf/data/theme/manifest.txt   # state=file，一行一个，另有 scale=N
+esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
 ```
 
-A theme directory plus its manifest is a **pack**, and the device holds exactly
-one — the 2.44 MB LittleFS partition has room for one pack of roughly 2 MB and
-nothing else. Switch packs from the web UI's `// theme` section, which posts the
-new pack file by file and then commits it; see CLAUDE-CODE-BRIDGE.md for why
-that is a three-step replacement rather than a swap.
+一个主题目录加上它的 manifest 就是一个**主题包**，设备上**只放得下一个** —— 2.44 MB 的 LittleFS 分区刚好够装一组约 2 MB 的包，没有余地。在网页的 `// theme` 区切换：它会逐个文件上传新包、最后提交。为什么是"三步替换"而不是直接换，见 [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)。
 
-Build a pack from a sticker set with:
+把一套贴图打包成主题包：
 
 ```bash
 python3 tools/mktheme.py ../stickers/128/calico -o /tmp/calico-pack \
         --scale 2 --no-upscale
 ```
 
-It prints the packed size against the partition budget, so an oversized pack is
-obvious before flashing rather than during upload. `tools/mochi_theme.py`
-fronts the whole pipeline — `convert`, `pack`, `verify`, `preview` — and
-`preview` is the one worth knowing about:
+它会打印打包后的体积与分区预算的对比，所以一个过大的包在烧录前就能看出来，而不是上传到一半才发现。`tools/mochi_theme.py` 是整条流水线的入口 —— `convert`、`pack`、`verify`、`preview` —— 其中 `preview` 最值得知道：
 
 ```bash
 python3 tools/mochi_theme.py preview /tmp/calico-pack -o /tmp/calico.png
 ```
 
-It renders what the panel will show — the manifest's `scale`, the transparent
-field with your background behind it, the frame at its stored position — so a
-pack can be judged without flashing it. Worth doing before an upload, since
-replacing a theme is destructive: the old pack is deleted first, and there is
-no room to keep a copy.
+它把**屏幕实际会显示的样子**渲染出来 —— manifest 里的 `scale`、以你的背景色透出的透明区域、画面在存储位置上的取值 —— 所以不用烧录就能判断一组包好不好。建议上传前先跑一次，因为换主题是**破坏性**的：旧包会先被删掉，没有地方留备份。
 
-**Two things decide whether a set fits**, and they interact:
+**决定一组贴图能不能装下的有两个因素**，而且它们互相影响：
 
-- **Source resolution.** These sets ship at several sizes and the art is what
-  costs bytes, not the canvas. `stickers/calico/` draws the crab at 205x155 and
-  six states come to 3.6 MB; `stickers/128/calico/` draws it at 96x74 and the
-  same six come to 991 KB.
-- **Whether you store it big or magnify on the device.** Run-length encoding
-  only stays compact while pixels stay crisp, so upscaling at conversion time
-  costs bytes *and* sharpness. `--no-upscale --scale 2` stores the art small
-  and has the firmware magnify it as it pushes; cloudling's idle animation goes
-  from 481 KB to 203 KB that way, the same picture either way.
+- **素材分辨率。** 这些贴图集有多个尺寸，占空间的是画本身而不是画布。`stickers/calico/` 把螃蟹画成 205x155，六个状态加起来 3.6 MB；`stickers/128/calico/` 画成 96x74，同样六个状态只有 991 KB。
+- **是存大图还是让设备放大。** 行程编码只在像素锐利时才紧凑，所以在转换阶段放大既费字节又伤锐度。`--no-upscale --scale 2` 把小图存下来、由固件在推送时放大：cloudling 的 idle 动画因此从 481 KB 降到 203 KB，画面完全一样。
 
-Also available: `--stride N` keeps every Nth frame, folding the dropped frames'
-durations into the survivors so the animation still takes as long — that trades
-smoothness for size rather than silently speeding a theme up.
+另外还有 `--stride N`：每 N 帧保留一帧，把被丢掉那几帧的时长折算到留下的帧上，动画总时长不变 —— 这是拿流畅度换体积，而不是偷偷把主题放快。
 
-Playback rate comes from the pack, not from the firmware: each `.caf` stores a
-per-frame duration taken from the source GIF, so a set authored at 8 fps and one
-authored at 17 fps each play at the rate they were drawn for. The background
-colour follows `bg#RRGGBB` over serial or BLE, and is stored in NVS — it survives a reboot — palette index 0 in every
-frame is transparent, so the colour baked into the `.caf` is never displayed.
+播放速度来自主题包本身、不来自固件：每个 `.caf` 里存着从源 GIF 取的每帧时长，所以 8 fps 做的主题和 17 fps 做的主题各按自己当初的节奏播放。背景色用串口或 BLE 的 `bg#RRGGBB` 设置，并存在 NVS 里（重启后保留）；每一帧的调色板索引 0 都是透明的，所以 `.caf` 里烘死的那个颜色永远不会显示出来。
 
-### Logo animation duration
+### Logo 动画时长
 
 ```cpp
-// In animLogoReveal() — how long the logo holds once revealed
-delayMs(1500);     // milliseconds — change this number
+// 在 animLogoReveal() 里 —— logo 完全展开后停留多久
+delayMs(1500);     // 毫秒 —— 改这个数
 
-// Time between reveal steps
-delayMs(24);       // lower = faster
+// 展开每一步之间
+delayMs(24);       // 越小越快
 ```
 
-The reveal has its own fixed pacing rather than following anything on the web
-UI: it is a one-shot boot flourish, not the pet's animation.
+这段展开有自己的固定节奏，不跟随网页上的任何设置：它是一次性的开机小演出，不是宠物的动画。
 
 ---
 
-## Contributing
+## 参与贡献
 
-Contributions are very welcome! Here are some ideas:
+非常欢迎贡献！一些方向：
 
-- **New animations** — add new expressions, transitions, or idle behaviors
-- **New views** — weather display, clock, notification badges, pixel art scenes
-- **Sound** — add a small buzzer for sound effects
-- **Sensors** — connect a touch sensor or button for physical interaction
-- **OTA updates** — add over-the-air firmware updates
-- **MQTT / Home Assistant** — connect to smart home platforms
+- **新动画** —— 增加新的表情、过渡或空闲动作
+- **新界面** —— 天气、时钟、通知角标、像素画场景
+- **声音** —— 加一个小蜂鸣器做音效
+- **传感器** —— 接触摸传感器或按钮做实体交互
+- **OTA 升级** —— 支持无线升级固件
+- **MQTT / Home Assistant** —— 接入智能家居平台
 
-To contribute: fork the repo, make your changes, and open a pull request. Please keep the single-file structure (`clawd_mochi.ino`) so it stays easy for beginners to flash.
+参与方式：fork 本仓库、改好、提 PR。请保持单文件结构（`clawd_mochi.ino`），这样初学者仍然能一把烧进去。
 
-## License
+## 许可证
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+本项目使用 MIT 许可证 —— 详见 [LICENSE](LICENSE)。
 
-**Note:** 3D models and media assets are licensed under **CC BY-NC-SA 4.0**.
+**注意：** 3D 模型与媒体素材使用 **CC BY-NC-SA 4.0** 许可证。
 
 ---
 

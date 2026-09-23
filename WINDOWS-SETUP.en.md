@@ -194,6 +194,34 @@ python tools\mochi.py state working
 python tools\mochi_ble.py state working
 ```
 
+### 4. Or: hand it to an AI
+
+Paste the block below into Claude Code on Windows — or any AI that can read and write files
+and run commands — and it will do the steps above for you, reporting as it goes:
+
+```
+I have a Clawd Mochi desk pet (ESP32-C3) on Windows, and the repository is on this machine at:
+<put your repository path here>
+
+Please set it up for me and tell me the result of each step:
+1. Check Python: run python --version; if that fails, try py -3 --version and tell me which one to use.
+2. Install the dependencies: pip install pyserial bleak
+3. If the device is plugged in over USB: run python tools\mochi.py ports, find the COM port whose
+   description mentions JTAG, and tell me the port number.
+4. Verify the device answers: python tools\mochi.py bright — it should print a number between 0 and
+   100. If it does not, show me the full error instead of trying things.
+5. Register the Claude Code hooks: edit %USERPROFILE%\.claude\settings.json and add three entries
+   under "hooks" — UserPromptSubmit, PreToolUse and Stop — each running
+     "<absolute path to python>" "<repo path>\tools\mochi_hook.py" <the same event name>
+   with "async": true and "timeout": 30, using forward slashes in the JSON paths.
+   Back the file up as settings.json.bak first, and check afterwards that the JSON is still valid.
+6. Verify the hook: run python tools\mochi_hook.py PreToolUse, then ask me whether the device
+   switched to its "working" animation.
+
+Constraints: back up any file before you change it; do not touch anything else in the repository;
+report each step as you finish it; if you are unsure, ask me instead of guessing.
+```
+
 ---
 
 ## Troubleshooting

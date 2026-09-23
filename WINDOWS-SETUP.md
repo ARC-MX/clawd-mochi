@@ -171,6 +171,29 @@ python tools\mochi.py state working
 python tools\mochi_ble.py state working
 ```
 
+### 4. 或者：把这一步交给 AI
+
+把下面整段贴给 Windows 上的 Claude Code（或任何能读写文件、能执行命令的 AI），它会替你做完上面这些步骤并逐项汇报：
+
+```
+我在 Windows 上有一台 Clawd Mochi 桌宠（ESP32-C3），仓库已经拷到本机，路径是：
+<把这里换成你的仓库路径>
+
+请帮我完成初始化配置，做完把每一步的结果告诉我：
+1. 检查 Python：先跑 python --version；如果没有，再试 py -3 --version，并告诉我最终该用哪个命令。
+2. 安装依赖：pip install pyserial bleak
+3. 如果设备已经插上 USB：跑 python tools\mochi.py ports，找出描述里带 JTAG 的那个 COM 口，把端口号告诉我。
+4. 验证设备能响应：python tools\mochi.py bright —— 应该回一个 0-100 的数字；不是的话把完整报错发我，不要自己乱试。
+5. 注册 Claude Code hooks：编辑 %USERPROFILE%\.claude\settings.json，在 "hooks" 里加三项 ——
+   UserPromptSubmit、PreToolUse、Stop，每一项执行
+     "<Python 的绝对路径>" "<仓库路径>\tools\mochi_hook.py" <同一个事件名>
+   参数用 "async": true、"timeout": 30；JSON 里的路径用正斜杠 /。
+   改之前先把原文件备份成 settings.json.bak，改完校验这个 JSON 仍然合法。
+6. 验证 hook：跑 python tools\mochi_hook.py PreToolUse，然后问我设备有没有切到"干活"动画。
+
+注意事项：动手前先备份要改的文件；不要改动仓库里的其它文件；每一步做完汇报结果；遇到不确定的地方先问我，不要猜。
+```
+
 ---
 
 ## 常见问题
