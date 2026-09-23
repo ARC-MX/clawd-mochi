@@ -118,6 +118,14 @@ static bool     stateRequested = false;
 // in initColours(); the default lives there so it can go through color565(),
 // which is not a constant expression.
 static uint16_t animSurround = 0xFFFF;
+// Set whenever the pet's background changes, and consumed by the housekeeping
+// loop below. The animation player repaints only the artwork's bounding box each
+// frame, so without this the margin around the artwork keeps the old colour until
+// the next state change — visible as a ring that does not follow the picker. Done
+// here rather than at the call sites because the web picker fires continuously
+// while dragging: this coalesces a drag into one full-screen repaint per tick
+// (the last one is never dropped) and cannot repaint over another view.
+static bool     bgDirty      = false;
 static bool     busy         = false;
 static bool     backlightOn  = true;
 // Terminal mode, a mode *within* VIEW_CODE (the rest of its state lives with
@@ -769,6 +777,7 @@ static esp_err_t routeRedraw(httpd_req_t* req) {
     // web UI now exposes them as separate pickers.
     animSurround = hexToRgb565(bg);
     animSetBackground(animSurround);
+    bgDirty = true;
   }
   switch (currentView) {
     case VIEW_CODE: drawCodeView();   break;
@@ -1337,6 +1346,7 @@ static void serialHandleLine(char* line) {
   if (strncmp(line, "bg", 2) == 0) {         // bg#RRGGBB
     animSurround = hexToRgb565(line + 2);
     animSetBackground(animSurround);
+    bgDirty = true;
     // The draw canvas keeps its own colour, but if it is what is on screen then
     // this command should change what you are looking at, not something hidden.
     if (currentView == VIEW_DRAW) drawBgColor = animSurround;
@@ -1818,6 +1828,15 @@ extern "C" void app_main() {
       animPlayState("sleep");
     }
     if (petOnScreen) transportIconTick();
+
+    // The pet's background changed while the player owns the panel: only its
+    // bounding box gets repainted per frame, so the margin needs this one clear.
+    // Skipped for the other views — they already repainted themselves with the
+    // new colour, and clearing here would wipe what they drew.
+    if (bgDirty && currentView == VIEW_ANIM) {
+      bgDirty = false;
+      tft.fillScreen(animSurround);
+    }
     delayMs(200);
   }
 }
