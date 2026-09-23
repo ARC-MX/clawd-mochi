@@ -129,10 +129,19 @@ static void advertise(void) {
   fields.name = (uint8_t *)s_devName;
   fields.name_len = strlen(s_devName);
   fields.name_is_complete = 1;
+  // Advertise the command service too. The name is user-configurable, so a
+  // central that looked for this device by name before the name changed would
+  // never find it again — host tools scan for the service instead (see
+  // tools/mochi_ble.py). Costs 4 of the 31 bytes in the PDU.
+  fields.uuids16 = (ble_uuid16_t *)&s_svc_uuid;
+  fields.num_uuids16 = 1;
+  fields.uuids16_is_complete = 1;
 
   int rc = ble_gap_adv_set_fields(&fields);
   if (rc != 0) {
-    ESP_LOGE(TAG, "adv_set_fields failed: %d", rc);
+    // Almost always the name not fitting: nothing else here is variable.
+    ESP_LOGE(TAG, "adv_set_fields failed: %d (name %u bytes)", rc,
+             (unsigned)strlen(s_devName));
     return;
   }
 

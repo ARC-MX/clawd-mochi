@@ -121,7 +121,9 @@ Go to **Tools** and set:
 1. Power the ESP32 via USB-C (any USB charger or power bank)
 2. Wait ~3 seconds for the boot animation to finish
 3. On your phone or computer, go to **WiFi settings**
-4. Connect to the network: **`ClaWD-Mochi`** · password: **`clawd1234`**
+4. Connect to the network: **`ClaWD-Mochi`** · password: **`clawd1234`** (factory
+   defaults — the device card in the web UI changes both, and the same name is
+   used for the Bluetooth advertisement)
 5. Open a browser and go to **`http://192.168.4.1`**
 
 You should see the web controller:

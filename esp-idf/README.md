@@ -71,4 +71,6 @@ dropped when it moved to a classic ESP32.
 | GND         | GND        |
 
 After flashing, connect to WiFi `ClaWD-Mochi` (pw `clawd1234`) and open
-`http://192.168.4.1`.
+`http://192.168.4.1`. Both are factory defaults: the device card in the web UI
+changes the name (the hotspot and the Bluetooth advertisement share it) and the
+password, and the device restarts to apply them.

@@ -24,6 +24,10 @@ import sys
 
 from bleak import BleakClient, BleakScanner
 
+# The device is found by the service it advertises, not by its name: the name is
+# configurable from the web UI (and the device restarts with the new one), so
+# matching on it would lose the device the moment someone renamed it. DEVICE_NAME
+# is only a fallback, for firmware predating the service-UUID advertisement.
 DEVICE_NAME = "clawd-mochi"
 
 # 16-bit UUIDs expanded to their canonical 128-bit form.
@@ -33,15 +37,22 @@ CHR_UUID = "0000abf1-0000-1000-8000-00805f9b34fb"
 SCAN_TIMEOUT = 8.0
 
 
+def is_ours(device, adv):
+    """True for the Clawd Mochi peripheral, whatever it is currently called."""
+    if SVC_UUID in (adv.service_uuids or []):
+        return True
+    return (device.name or "").lower() == DEVICE_NAME
+
+
 async def find_device():
-    return await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=SCAN_TIMEOUT)
+    return await BleakScanner.find_device_by_filter(is_ours, timeout=SCAN_TIMEOUT)
 
 
 async def send(commands):
     dev = await find_device()
     if dev is None:
-        print(f"Error: '{DEVICE_NAME}' not found. Is it powered and in range?",
-              file=sys.stderr)
+        print("Error: no Clawd Mochi in range (it advertises the command "
+              "service; check that it is powered and nearby).", file=sys.stderr)
         return 1
 
     async with BleakClient(dev) as client:
@@ -53,9 +64,10 @@ async def send(commands):
 
 async def scan():
     print("Scanning for BLE devices…")
-    for d in await BleakScanner.discover(timeout=SCAN_TIMEOUT):
-        mark = "  <-- clawd-mochi" if (d.name or "") == DEVICE_NAME else ""
-        print(f"  {d.address}  {d.name}{mark}")
+    for device, adv in (await BleakScanner.discover(timeout=SCAN_TIMEOUT,
+                                                    return_adv=True)).values():
+        mark = "  <-- clawd mochi" if is_ours(device, adv) else ""
+        print(f"  {device.address}  {device.name}{mark}")
     return 0
 
 
