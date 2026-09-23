@@ -1,13 +1,17 @@
 # Clawd Mochi — ESP-IDF defaults
-CONFIG_IDF_TARGET="esp32"
+CONFIG_IDF_TARGET="esp32c3"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 
 # ── Bluetooth (NimBLE peripheral) ──────────────────────────────
 # BLE-only, NimBLE host: the lightest way to expose a GATT command
 # characteristic alongside WiFi. See CLAUDE-CODE-BRIDGE.md §方案 D.
+#
+# The ESP32-only CONFIG_BTDM_CTRL_MODE_BLE_ONLY is gone with the move to the
+# C3: BTDM (the dual-mode controller) does not exist there, so the symbol is
+# meaningless — and the C3 has no Classic radio to switch off in the first
+# place, so BLE-only is what you get regardless.
 CONFIG_BT_ENABLED=y
-CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
 CONFIG_BT_BLUEDROID_ENABLED=n
 CONFIG_BT_NIMBLE_ENABLED=y
 

@@ -1,15 +1,15 @@
 /*
  * ╔══════════════════════════════════════════════════════════════╗
- *   CLAWD MOCHI — ESP32 + ST7789 240×240
+ *   CLAWD MOCHI — ESP32-C3 + ST7789 240×240
  *   ESP-IDF port (C++)
  *
  *   Wiring:
- *     SDA → GPIO 21  (hardware SPI MOSI)
- *     SCL → GPIO 18  (hardware SPI SCK)
- *     RST → GPIO 23
- *     DC  → GPIO 5
- *     CS  → GPIO 32
- *     BL  → GPIO 14
+ *     SDA → GPIO 10 (hardware SPI MOSI)
+ *     SCL → GPIO 8  (hardware SPI SCK)   — strapping pin, see README
+ *     RST → GPIO 2                       — strapping pin, needs a pull-up
+ *     DC  → GPIO 1
+ *     CS  → GPIO 4
+ *     BL  → GPIO 3
  *     VCC → 3V3
  *     GND → GND
  *
@@ -49,12 +49,14 @@
 static const char* TAG = "clawd_mochi";
 
 // ── Pins ──────────────────────────────────────────────────────
-#define TFT_CS  32
-#define TFT_DC  5
-#define TFT_RST 23
-#define TFT_BLK 14
-#define TFT_MOSI 21
-#define TFT_SCLK 18
+// ESP32-C3. Note GPIO2 (RES) and GPIO8 (SCK) are strapping pins on this chip —
+// see the wiring notes in README.md before changing them.
+#define TFT_CS   4
+#define TFT_DC   1
+#define TFT_RST  2
+#define TFT_BLK  3
+#define TFT_MOSI 10
+#define TFT_SCLK 8
 
 // Non-static: anim.cpp draws through this same instance.
 Display tft(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK);
