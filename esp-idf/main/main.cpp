@@ -36,6 +36,7 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/uart.h"
+#include "driver/usb_serial_jtag.h"
 #include "esp_log.h"
 
 #include "display.h"
@@ -1054,11 +1055,20 @@ static void mountStorage() {
 }
 
 // ═════════════════════════════════════════════════════════════
-//  SERIAL CLI — USB serial via the CH340, i.e. UART0.
+//  SERIAL CLI — USB serial via the chip's native USB-Serial-JTAG.
 //  Lets Claude Code hooks drive the screen. See CLAUDE-CODE-BRIDGE.md.
+//
+//  Not UART0. The C3 Super Mini's USB socket is wired to the USB-Serial-JTAG
+//  peripheral, and the console's *secondary* sink is what puts our printf
+//  output on /dev/ttyACM0. Reading UART0 instead — which is what this used to
+//  do — meant host writes filled the USB peripheral's RX FIFO, NAK'd, and
+//  blocked the host's write() for good: the transport was dead in one
+//  direction while looking alive in the other.
 // ═════════════════════════════════════════════════════════════
 
-#define SERIAL_RX_BUF   2048
+#define SERIAL_RX_BUF   2048     // UART0's ring (see serialInit for why it stays)
+#define SERIAL_RX_RING  4096     // USB-Serial-JTAG's ring: >64 required, and
+                                 // one image band is 3840 bytes
 #define SERIAL_LINE_MAX 128
 #define IMG_BAND_ROWS      8
 
@@ -1085,8 +1095,8 @@ static void serialReceiveImage() {
   int16_t  bandY = 0;
 
   while (gotPx < totalPx) {
-    int n = uart_read_bytes(UART_NUM_0, raw + filled, bandLen - filled,
-                            pdMS_TO_TICKS(1000));
+    int n = usb_serial_jtag_read_bytes(raw + filled, bandLen - filled,
+                                       pdMS_TO_TICKS(1000));
     if (n <= 0) break;                       // stalled — give up
     filled += (uint32_t)n;
     if (filled == bandLen) {
@@ -1282,15 +1292,16 @@ static void serialTask(void* arg) {
   uint8_t ch;
 
   // Read one byte at a time: a bulk read could swallow the first bytes of an
-  // "img" payload before the line was dispatched.
+  // "img" payload before the line was dispatched. The driver returns as soon as
+  // one byte lands, so this does not spin.
   while (true) {
-    int n = uart_read_bytes(UART_NUM_0, &ch, 1, pdMS_TO_TICKS(100));
+    int n = usb_serial_jtag_read_bytes(&ch, 1, pdMS_TO_TICKS(100));
     if (n <= 0) continue;
     if (ch == '\n' || ch == '\r') {
       if (len) {
         line[len] = 0;
-        // "img" streams raw pixels off this UART, so it must run here, where
-        // we own the port — not on the worker task.
+        // "img" streams raw pixels off this port, so it must run here, where
+        // we own it — not on the worker task.
         if (strcmp(line, "img") == 0) serialReceiveImage();
         else xQueueSend(s_cmdQueue, line, 0);
         len = 0;
@@ -1306,11 +1317,25 @@ static void serialInit() {
   ESP_ERROR_CHECK(s_cmdQueue != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
   xTaskCreate(cmdWorkerTask, "cmd_worker", 6144, nullptr, 5, nullptr);
 
-  // UART0 doubles as the IDF console, whose driver may already be installed;
-  // uart_read_bytes() works either way, so a failure here is not fatal.
+  // The host link. UART0's driver is still installed here, but nothing reads
+  // its FIFO any more — it goes away with the include in the next commit.
   esp_err_t err = uart_driver_install(UART_NUM_0, SERIAL_RX_BUF, 0, 0, nullptr, 0);
   ESP_LOGD(TAG, "UART0 driver install -> %s", esp_err_to_name(err));
-  xTaskCreate(serialTask, "serial_cli", 4096, nullptr, 5, nullptr);
+
+  // USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT() sizes both rings at 256; the TX ring
+  // only has to be non-zero for the install to pass, since nothing here writes
+  // through it — replies go out via printf on the console path.
+  usb_serial_jtag_driver_config_t usj = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+  usj.rx_buffer_size = SERIAL_RX_RING;
+  esp_err_t usj_err = usb_serial_jtag_driver_install(&usj);
+  ESP_LOGI(TAG, "USB-Serial-JTAG driver install -> %s", esp_err_to_name(usj_err));
+  if (usj_err == ESP_OK) {
+    xTaskCreate(serialTask, "serial_cli", 4096, nullptr, 5, nullptr);
+  } else {
+    // Without the driver usb_serial_jtag_read_bytes() dereferences its NULL
+    // object, so the reader must not start. BLE and WiFi still drive the pet.
+    ESP_LOGE(TAG, "no USB-serial input on this boot");
+  }
 
 #if ENABLE_BLE
   bleCliInit(s_cmdQueue);
