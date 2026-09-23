@@ -184,6 +184,30 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
   </div>
 </div>
 
+<div class="sec">// device</div>
+<div class="ctrl" style="flex-direction:column;gap:8px;align-items:stretch">
+  <div style="font-size:11px;color:#8a8278;line-height:1.5">
+    <b>One</b> name for both radios — the WiFi hotspot and the Bluetooth
+    advertisement. Saving restarts the device, so this page will drop: the
+    hotspot comes back under the new name and you reconnect to it.
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:11px;color:#8a8278;white-space:nowrap">name</span>
+    <input type="text" id="devName" maxlength="22" autocomplete="off"
+           style="flex:1;font-size:11px;background:#2a2a2e;color:#ddd;border:1px solid #444;border-radius:6px;padding:6px">
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:11px;color:#8a8278;white-space:nowrap">wifi pass</span>
+    <input type="text" id="devPass" maxlength="63" autocomplete="off"
+           style="flex:1;font-size:11px;background:#2a2a2e;color:#ddd;border:1px solid #444;border-radius:6px;padding:6px">
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="db lbtn" id="devBtn" onclick="saveDeviceName()">save &amp; restart</button>
+    <button class="db lbtn" id="devRst" onclick="resetDevice()">factory name</button>
+    <span class="sv" id="devSt" style="font-size:11px"></span>
+  </div>
+</div>
+
 <div class="sec">// terminal</div>
 <div class="twrap" id="twrap">
   <div class="thdr">
@@ -488,6 +512,43 @@ async function uploadTheme() {
   }
 }
 
+// ── Device name + WiFi password ────────────────────────────────
+// The device answers with {ok:1, name} or {e:"..."} and then reboots, which
+// drops this connection — so a success deliberately leaves the button disabled
+// rather than inviting a second save into a device that is going away.
+async function saveDevice(query, verb) {
+  const btn = document.getElementById('devBtn');
+  const rst = document.getElementById('devRst');
+  const st  = document.getElementById('devSt');
+  btn.disabled = true;
+  rst.disabled = true;
+  try {
+    // POST: this writes flash and reboots the device, and a GET would live on in
+    // the browser's history where a reload would reboot it again.
+    const r = await fetch('/device', { method: 'POST', body: query });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.e || 'rejected');
+    st.textContent = verb + ' - reconnect to ' + j.name;
+    toast('device restarting');
+  } catch (e) {
+    st.textContent = 'not saved';
+    toast('not saved: ' + e.message, false);
+    btn.disabled = false;
+    rst.disabled = false;
+  }
+}
+
+function saveDeviceName() {
+  const name = document.getElementById('devName').value.trim();
+  const pass = document.getElementById('devPass').value;
+  return saveDevice('name=' + encodeURIComponent(name) +
+                    '&pass=' + encodeURIComponent(pass), 'restarting');
+}
+
+function resetDevice() {
+  return saveDevice('default=1', 'restoring defaults');
+}
+
 // Init: sync speed, backlight and pet background from the device
 (async () => {
   try {
@@ -507,6 +568,10 @@ async function uploadTheme() {
     // Sync pet background. The device is the source of truth: it also holds any
     // colour set over serial/BLE, so do not keep a second copy of the default.
     if (j.bg) document.getElementById('bgCol').value = j.bg;
+    // The device's own name and hotspot password, so the card shows what is
+    // actually in force rather than what was last typed here.
+    if (j.name) document.getElementById('devName').value = j.name;
+    if (j.pass) document.getElementById('devPass').value = j.pass;
     // Expressions offered are whatever the mounted pack actually provides.
     if (j.states) {
       const sel = document.getElementById('stateSel');
