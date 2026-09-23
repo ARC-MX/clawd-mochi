@@ -1,13 +1,15 @@
 # Clawd Mochi ↔ Claude Code 联动方案
 
-> 状态：**方案 D（BLE）与 E（USB 串口）已实现并接入 Claude Code hooks**；方案 A（WiFi STA）仍为设计稿
+> 状态：**方案 D（BLE）与 E（USB 串口）已实现并接入 Claude Code hooks**（`tools/mochi_hook.py` 已注册进 `~/.claude/settings.json` 的 UserPromptSubmit / PreToolUse / Stop）；方案 A（WiFi STA）仍为设计稿
 > 目标：让 ESP32 上的实体设备实时反映 Claude Code 的状态（空闲 / 思考中 / 正在用工具 / 需要授权）
+>
+> 设备端在动画界面右上角有一个 16×16 的**来源图标**：显示最近驱动它的传输（USB / BLE / WiFi），约 10 秒无命令后隐藏；颜色区分该链路此刻是否真的连着（强调色 = 连着，灰色 = 只是最近来过）。
 
 ---
 
 ## 1. 现状
 
-**两块是分开的，mochi 目前完全不接 Claude Code。**
+**两块是分开的**：桌面端 `clawd/` 一直跟着 Claude Code 动，mochi 这边则由 `tools/mochi_hook.py`（USB 串口优先、BLE 兜底）把同类的 hook 事件变成主题动画。
 
 | 项目 | 接 Claude Code？ | 说明 |
 |---|---|---|
@@ -177,8 +179,12 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
 - ⚠️ 需要有线的 USB 连接（设备不能离得太远）
 - ⚠️ 同一时刻只有一台主机能用（点对点）
 
-**设备端**：UART0（CH340）上的行命令解析器，115200 波特，`\n` 结尾。
+**设备端**：USB-Serial-JTAG 上的行命令解析器（`usb_serial_jtag_read_bytes`，波特率对 USB 无意义），`\n` 结尾。
 **宿主端**：`tools/mochi.py`。
+
+> ⚠️ **不是 UART0**。C3 Super Mini 的 USB 座连的是芯片原生 USB-Serial-JTAG，而 UART0 走 GPIO20/21、板上没接东西。固件曾经读 UART0 —— 于是主机写进 `/dev/ttyACM0` 的字节没人取、RX FIFO 满了之后 `write()` 直接阻塞，**下行等于死的**（日志能出来只是因为控制台的*副输出*是 USB-Serial-JTAG，那条路只发不收）。已修：读取改走 USB-Serial-JTAG 驱动，并把没人读的 UART0 驱动摘掉。
+>
+> ⚠️ **要连的话，主机的 `DTR` 也有讲究**：打开端口需要 `DTR=True、RTS=False` 并清掉 `HUPCL`，否则会触发复位。上游 PR 的 `DTR=False/RTS=False` 在本板会导致每次打开都复位。`tools/mochi.py` 的 `_open()` 已经处理好了。
 
 ```bash
 python3 tools/mochi.py status "Claude is thinking…"

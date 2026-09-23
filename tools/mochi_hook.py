@@ -2,8 +2,15 @@
 """Claude Code hook -> Clawd Mochi (ESP32) state driver.
 
 Maps a Claude Code event to a themed animation state and pushes it to the
-device, trying USB serial first (fast, zero connection overhead) and falling
-back to BLE when the device is untethered.
+device over USB serial, falling back to BLE when the device is untethered.
+
+Serial first, and not by a small margin: a command over USB is a write and a
+reply, measured at 0.086 s, while BLE has to scan, connect, write and
+disconnect — about 4 s. The device's USB socket is the ESP32-C3's native
+USB-Serial-JTAG and the firmware reads it (it did not always: see the serial
+fixes in the firmware history, before which a serial attempt blocked until its
+own timeout and every state change landed 12 s late). BLE remains the path when
+the cable is out.
 
 Debounces: the same state sent again within DEBOUNCE_MS is dropped, so
 PreToolUse (which fires on every tool call) does not hammer the serial port.
@@ -25,7 +32,7 @@ import time
 BASE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable or "python3"
 
-# Try the fast serial path first; fall back to BLE when there is no port.
+# Serial first — see the module docstring for the 0.086 s vs ~4 s measurement.
 SERIAL = [PY, os.path.join(BASE, "mochi.py")]
 BLE = [PY, os.path.join(BASE, "mochi_ble.py")]
 
