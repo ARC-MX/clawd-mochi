@@ -9,7 +9,7 @@ Usage:
   mochi_ble.py squish               # squish eyes
   mochi_ble.py state idle           # play a themed animation ("state list" to list)
   mochi_ble.py status Thinking...   # status text below the eyes
-  mochi_ble.py raw "speed3"         # any raw command from the serial protocol
+  mochi_ble.py raw "state idle"     # any raw command from the serial protocol
   mochi_ble.py scan                 # list nearby BLE devices
 
 Command reference: see CLAUDE-CODE-BRIDGE.md (方案 D / 方案 E share it).
@@ -96,8 +96,6 @@ def build_commands(argv):
         return ["t" + " ".join(rest)]
     if sub == "bg":
         return ["bg" + (rest[0] if rest else "#000000")]
-    if sub == "speed":
-        return ["speed" + (rest[0] if rest else "2")]
     if sub == "line":
         if len(rest) < 5:
             print("Error: 'line' needs x1 y1 x2 y2 #RRGGBB", file=sys.stderr)

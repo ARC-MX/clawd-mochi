@@ -53,10 +53,6 @@ body{background:#1c1c20;font-family:'Courier New',monospace;color:#e8e4dc;
 .vbtn[data-v="2"].active{border-color:#4a8acd;background:#0c1628}
 .vbtn[data-v="3"].active{border-color:#38343a;background:#201c18}
 
-/* Speed slider */
-.speed-row{width:100%;max-width:390px;display:flex;align-items:center;gap:10px}
-.sl{font-size:10px;color:#6a6058;white-space:nowrap;min-width:36px}
-input[type=range]{flex:1;accent-color:#c96a3e;cursor:pointer;height:20px}
 .sv{font-size:11px;color:#c96a3e;min-width:44px;text-align:right;font-weight:bold}
 
 /* Terminal */
@@ -139,13 +135,6 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
     <span class="nm">Canvas</span>
     <span class="ht">draw on display</span>
   </button>
-</div>
-
-<div class="sec">// speed</div>
-<div class="speed-row">
-  <span class="sl">slow</span>
-  <input type="range" id="spd" min="1" max="3" value="2" step="1" oninput="setSpeed(this.value)">
-  <span class="sv" id="spdV">normal</span>
 </div>
 
 <div class="ctrl">
@@ -241,7 +230,6 @@ let drawing     = false;
 let lastX = 0, lastY = 0;
 let tt;
 
-const spdLabels = ['','slow','normal','fast'];
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, ok=true) {
@@ -298,12 +286,6 @@ async function onBgChange(hex) {
 async function onCanvasBgChange(hex) {
   if (canvasOpen) await req('/draw/clear?bg=' + encodeURIComponent(hex));
   redrawCanvas(hex);
-}
-
-// ── Speed ───────────────────────────────────────────────────────
-async function setSpeed(v) {
-  document.getElementById('spdV').textContent = spdLabels[v];
-  await req('/speed?v=' + v);
 }
 
 // ── Views ───────────────────────────────────────────────────────
@@ -549,15 +531,11 @@ function resetDevice() {
   return saveDevice('default=1', 'restoring defaults');
 }
 
-// Init: sync speed, backlight and pet background from the device
+// Init: sync backlight and pet background from the device
 (async () => {
   try {
     const r = await fetch('/state');
     const j = await r.json();
-    // Sync speed
-    const spd = j.speed || 2;
-    document.getElementById('spd').value = spd;
-    document.getElementById('spdV').textContent = spdLabels[spd];
     // Sync backlight
     if (j.bl === false) {
       blOn = false;

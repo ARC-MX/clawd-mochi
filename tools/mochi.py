@@ -12,7 +12,6 @@ Usage:
   mochi.py logo                 # show logo animation
   mochi.py quit                 # exit terminal mode (q)
   mochi.py bg '#ff0000'         # set background colour
-  mochi.py speed 2              # set speed 1/2/3
   mochi.py status Thinking...   # show text below eyes (size 2)
   mochi.py status -s3 Klar!     # show with font size 3
   mochi.py status               # clear status text
@@ -218,8 +217,6 @@ def main():
         cmd = "states" if arg == "list" else ("state " + arg).strip()
     elif subcmd == "bg":
         cmd = "bg" + (sys.argv[2] if len(sys.argv) > 2 else "#000000")
-    elif subcmd == "speed":
-        cmd = "speed" + (sys.argv[2] if len(sys.argv) > 2 else "2")
     elif subcmd == "line":
         if len(sys.argv) < 7:
             print("Error: 'line' needs x1 y1 x2 y2 #RRGGBB", file=sys.stderr)

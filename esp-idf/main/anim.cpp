@@ -46,13 +46,8 @@ static const char* TAG = "anim";
 // the time of any frames dropped by --stride), so a theme authored at 8 fps and
 // one authored at 17 fps each play at the rate they were drawn for. Picking one
 // rate for every theme is what made calico run ~1.8x fast.
-//
-// animSetSpeed() scales that authored timing rather than replacing it: 2 is the
-// pack's own rate, 1 is 1.5x slower, 3 is 0.67x.
 #define ANIM_DELAY_MIN_MS 10        // guard against a zero/absurd table entry
 #define ANIM_DELAY_MAX_MS 500
-static volatile uint16_t s_speedNum = 1;
-static volatile uint16_t s_speedDen = 1;
 
 // Log the achieved frame rate every N frames. Handy when tuning ANIM_FPS or the
 // .caf encoding against this board's SPI ceiling; off by default to keep the
@@ -356,17 +351,14 @@ static bool playOnce(const char* state, uint32_t gen) {
 
     if (!renderFrame(fd, offset, x0, y0, w, h, palette)) break;
 
-    // The pack's own timing, scaled by the speed setting. Rendering is now much
-    // cheaper than the SPI-bound full frame, so this wait (not the bus) sets the
-    // frame rate; subtract the work already done so a slow frame does not add
-    // to the interval.
+    // The pack's own timing. Rendering is now much cheaper than the SPI-bound
+    // full frame, so this wait (not the bus) sets the frame rate; subtract the
+    // work already done so a slow frame does not add to the interval.
     if (authoredMs < ANIM_DELAY_MIN_MS) authoredMs = ANIM_DELAY_MIN_MS;
     if (authoredMs > ANIM_DELAY_MAX_MS) authoredMs = ANIM_DELAY_MAX_MS;
 
     const int64_t renderUs = esp_timer_get_time() - t0;
-    uint32_t wantMs = (uint32_t)authoredMs * s_speedNum / s_speedDen;
-    if (wantMs < ANIM_DELAY_MIN_MS) wantMs = ANIM_DELAY_MIN_MS;
-    const int waitMs = (int)wantMs - (int)(renderUs / 1000);
+    const int waitMs = (int)authoredMs - (int)(renderUs / 1000);
     if (waitMs > 0) vTaskDelay(pdMS_TO_TICKS(waitMs));
 
 #if ANIM_LOG_FPS
@@ -436,15 +428,6 @@ static void animTask(void* arg) {
 }
 
 void animSetBackground(unsigned short colour) { s_bg = (uint16_t)colour; }
-
-// 1 = slow, 2 = the pack's own rate, 3 = fast. Anything else falls back to 2.
-void animSetSpeed(unsigned level) {
-  switch (level) {
-    case 1:  s_speedNum = 3; s_speedDen = 2; break;   // 1.5x the authored delay
-    case 3:  s_speedNum = 2; s_speedDen = 3; break;   // 0.67x
-    default: s_speedNum = 1; s_speedDen = 1; break;   // as authored
-  }
-}
 
 // The theme directory has been replaced underneath us. Nothing about a theme is
 // cached — the manifest is re-read, and the scale with it, on every state

@@ -196,11 +196,6 @@ static void setBacklightDuty(uint32_t duty) {
 static void setBacklight(bool on) {
   setBacklightDuty(on ? BL_DUTY_MIN : 0);   // "on" = 3% brightness
 }
-// Playback rate for the pet's animations: 1 slow, 2 authored rate, 3 fast.
-// Handed to the player via animSetSpeed(); the boot splash has its own fixed
-// pacing and is deliberately not affected by this.
-static uint8_t  animSpeed    = 2;
-
 static uint16_t drawBgColor  = 0;
 
 // Status line, shown on the static views (set over serial / HTTP).
@@ -765,20 +760,6 @@ static esp_err_t routeChar(httpd_req_t* req) {
   return ESP_OK;
 }
 
-static esp_err_t routeSpeed(httpd_req_t* req) {
-  noteActivity();
-  char v[8] = {0};
-  if (getQueryArg(req, "v", v, sizeof(v))) {
-    int s = atoi(v);
-    if (s < 1) s = 1;
-    if (s > 3) s = 3;
-    animSpeed = (uint8_t)s;
-    animSetSpeed(animSpeed);
-  }
-  sendJson(req, "{\"ok\":1}");
-  return ESP_OK;
-}
-
 static esp_err_t routeRedraw(httpd_req_t* req) {
   noteActivity();
   char bg[16] = {0};
@@ -1123,13 +1104,13 @@ static esp_err_t routeState(httpd_req_t* req) {
   // they go into the JSON verbatim.
   char j[512];
   snprintf(j, sizeof(j),
-           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"speed\":%u,"
+           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,"
            "\"bg\":\"%s\",\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\"}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
-           animSpeed, bg, states, settingsName(), settingsPass());
+           bg, states, settingsName(), settingsPass());
   sendJson(req, j);
   return ESP_OK;
 }
@@ -1222,7 +1203,6 @@ static void startWebServer() {
   r.uri = "/";            r.handler = routeRoot;       httpd_register_uri_handler(server, &r);
   r.uri = "/cmd";         r.handler = routeCmd;        httpd_register_uri_handler(server, &r);
   r.uri = "/char";        r.handler = routeChar;       httpd_register_uri_handler(server, &r);
-  r.uri = "/speed";       r.handler = routeSpeed;      httpd_register_uri_handler(server, &r);
   r.uri = "/redraw";      r.handler = routeRedraw;     httpd_register_uri_handler(server, &r);
   r.uri = "/canvas";      r.handler = routeCanvas;     httpd_register_uri_handler(server, &r);
   r.uri = "/draw/clear";  r.handler = routeDrawClear;  httpd_register_uri_handler(server, &r);
@@ -1365,14 +1345,6 @@ static void serialHandleLine(char* line) {
       case VIEW_DRAW: tft.fillScreen(drawBgColor); break;
       default: break;   // the animation player owns the panel
     }
-    serialReply("ok");
-    return;
-  }
-
-  if (strncmp(line, "speed", 5) == 0) {      // speed1 / speed2 / speed3
-    int s = atoi(line + 5);
-    animSpeed = (uint8_t)(s < 1 ? 1 : (s > 3 ? 3 : s));
-    animSetSpeed(animSpeed);
     serialReply("ok");
     return;
   }
@@ -1806,7 +1778,6 @@ extern "C" void app_main() {
   serialInit();             // also starts BLE, when ENABLE_BLE
   animInit();
   animSetBackground(animSurround);
-  animSetSpeed(animSpeed);
 
   // The corner icon waits for the pet to own the panel: currentView is already
   // VIEW_ANIM through the boot card and the WiFi info screen, so it needs a
