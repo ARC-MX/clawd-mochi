@@ -27,6 +27,13 @@ static const ble_uuid16_t s_chr_uuid = BLE_UUID16_INIT(0xABF1);
 static QueueHandle_t s_cmdQueue;
 static uint8_t       s_ownAddrType;
 static const char    s_devName[] = "clawd-mochi";
+// Written only by the NimBLE host task — the GAP callback runs there, and that
+// is where NimBLE serialises connection state. A count rather than a flag:
+// CONFIG_BT_NIMBLE_MAX_CONNECTIONS is 3, and a second central disconnecting must
+// not clear the first one's.
+static uint8_t       s_connCount = 0;
+
+uint8_t bleCliConnCount(void) { return s_connCount; }
 
 static int chrAccess(uint16_t connHandle, uint16_t attrHandle,
                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -81,7 +88,9 @@ static int gapEvent(struct ble_gap_event *event, void *arg) {
   switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
       if (event->connect.status == 0) {
-        ESP_LOGI(TAG, "central connected");
+        if (s_connCount < 0xFF) s_connCount++;
+        ESP_LOGI(TAG, "central connected (handle %d), %u up",
+                 event->connect.conn_handle, s_connCount);
       } else {
         ESP_LOGW(TAG, "connect failed (%d); advertising again", event->connect.status);
         advertise();
@@ -89,8 +98,9 @@ static int gapEvent(struct ble_gap_event *event, void *arg) {
       break;
 
     case BLE_GAP_EVENT_DISCONNECT:
-      ESP_LOGI(TAG, "central disconnected (%d); advertising again",
-               event->disconnect.reason);
+      if (s_connCount) s_connCount--;
+      ESP_LOGI(TAG, "central disconnected (%d), %u up; advertising again",
+               event->disconnect.reason, s_connCount);
       advertise();
       break;
 

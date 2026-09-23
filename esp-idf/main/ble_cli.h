@@ -17,6 +17,11 @@ extern "C" {
 // items are cmd_item_t (see cmd_queue.h).
 void bleCliInit(QueueHandle_t cmdQueue);
 
+// How many centrals are connected right now. Written only by the NimBLE host
+// task, in the GAP callback; a byte load is atomic on this chip, so any task may
+// read it.
+uint8_t bleCliConnCount(void);
+
 #ifdef __cplusplus
 }
 #endif

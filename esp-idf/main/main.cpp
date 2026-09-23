@@ -40,6 +40,7 @@
 
 #include "display.h"
 #include "cmd_queue.h"
+#include "transport_icon.h"
 #include "logo_data.h"
 #include "splash_text.h"
 #include "splash_credit.h"
@@ -990,12 +991,42 @@ static esp_err_t routeNotFound(httpd_req_t* req, httpd_err_code_t code) {
 //  WIFI + HTTP SERVER
 // ═════════════════════════════════════════════════════════════
 
+// Stations currently associated with our SoftAP — the web controller's link.
+// Event-driven rather than polled: esp_wifi_ap_get_sta_list() is a synchronous
+// call into the WiFi library under its lock, while this is a counter increment
+// on the default event task. volatile because the reader is a loop that never
+// writes it, and would otherwise be free to hoist the load out. (Read-modify-
+// write rather than ++/--, which C++20 deprecated on volatile.)
+static volatile uint8_t s_wifiStas = 0;
+
+static void wifiEventHandler(void* arg, esp_event_base_t base, int32_t id, void* data) {
+  (void)arg; (void)data;
+  if (base != WIFI_EVENT) return;
+  uint8_t n = s_wifiStas;
+  if (id == WIFI_EVENT_AP_STACONNECTED) {
+    if (n < 0xFF) s_wifiStas = (uint8_t)(n + 1);
+  } else if (id == WIFI_EVENT_AP_STADISCONNECTED) {
+    if (n) s_wifiStas = (uint8_t)(n - 1);
+  } else {
+    return;
+  }
+  ESP_LOGI(TAG, "wifi: %u station(s) up", (unsigned)s_wifiStas);
+}
+
+static uint8_t wifiStaCount() { return s_wifiStas; }
+
 static void wifiInitSoftAP() {
   esp_netif_t* ap = esp_netif_create_default_wifi_ap();
   (void)ap;
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+  // Registered before esp_wifi_start(), so a station cannot associate in the gap.
+  ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED,
+                                             &wifiEventHandler, nullptr));
+  ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STADISCONNECTED,
+                                             &wifiEventHandler, nullptr));
 
   wifi_config_t wifi_config = {};
   strncpy((char*)wifi_config.ap.ssid, AP_SSID, sizeof(wifi_config.ap.ssid));
@@ -1360,6 +1391,78 @@ static void serialInit() {
 #endif
 }
 
+// ── Corner transport icon (VIEW_ANIM only) ────────────────────
+// Two layers. WHICH transport shows is "who last delivered a command", held for
+// ICON_HOLD_MS of silence and then hidden entirely; the COLOUR is that
+// transport's real link state — accent while the link is actually up, muted grey
+// when the command arrived but the link has since gone away.
+//
+// Redrawn unconditionally on every housekeeping tick rather than tracked to a
+// change. Five independent paths paint over that corner — the player's
+// fillScreen on every state change, the boot card, the WiFi info screen,
+// drawCodeView(), and the canvas/img fillScreen — and each would have to
+// remember to notify us. A 16x16 blit is 512 bytes, about a tenth of a
+// millisecond on the bus, so self-healing by brute force is cheaper than that
+// coupling. The cost is that the icon is absent for up to one tick (200 ms)
+// after a state change wipes it.
+//
+// (222,2)-(237,17) clears every shipped theme's bounding box: the packs that
+// reach the right edge all start at y>=18, and the ones that start at y=12 all
+// stop at x<=221. That is a property of this pack set, not of the format — the
+// converter's 12 px default margin only guarantees x<=227, and `--no-fit` can
+// produce full-bleed art, which would overwrite the icon every frame.
+#define ICON_HOLD_MS 10000
+#define ICON_X (DISP_W - 18)     // 222
+#define ICON_Y 2
+
+static bool    s_iconShown  = false;
+static uint8_t s_iconLogged = CMD_SRC_NONE;   // src, | 0x80 while live
+
+static void transportIconTick() {
+  if (currentView != VIEW_ANIM) {
+    // Another view owns the panel now and its own paint covered the corner.
+    // Erasing here would punch a 16x16 animSurround hole in the code view's
+    // dark background or in an image pushed with `img` — just forget it.
+    s_iconShown  = false;
+    s_iconLogged = CMD_SRC_NONE;
+    return;
+  }
+
+  const bool recent =
+      lastTransport != CMD_SRC_NONE &&
+      (xTaskGetTickCount() - lastTransportTick) < pdMS_TO_TICKS(ICON_HOLD_MS);
+  if (!recent) {
+    if (s_iconShown) {
+      tft.fillRect(ICON_X, ICON_Y, TI_W, TI_H, animSurround);
+      s_iconShown = false;
+      ESP_LOGI(TAG, "icon: hidden");
+    }
+    s_iconLogged = CMD_SRC_NONE;
+    return;
+  }
+
+  // The style is the link's real state, not how recent the command was.
+  ti_glyph_t glyph;
+  bool live;
+  switch (lastTransport) {
+    case CMD_SRC_SERIAL: live = usb_serial_jtag_is_connected(); glyph = TI_USB;  break;
+    case CMD_SRC_BLE:    live = bleCliConnCount() > 0;          glyph = TI_BT;   break;
+    case CMD_SRC_HTTP:   live = wifiStaCount() > 0;             glyph = TI_WIFI; break;
+    default:             return;
+  }
+  transportIconDraw(tft, ICON_X, ICON_Y, glyph,
+                    live ? C_ORANGE : C_MUTED, animSurround);
+  s_iconShown = true;
+
+  // One line per visible change. The panel has no read-back path, so this is
+  // how the icon's logic gets checked without a camera pointed at it.
+  const uint8_t now = (uint8_t)(lastTransport | (live ? 0x80 : 0x00));
+  if (now != s_iconLogged) {
+    s_iconLogged = now;
+    ESP_LOGI(TAG, "icon: %s %s", cmdSrcName(lastTransport), live ? "live" : "recent");
+  }
+}
+
 extern "C" void app_main() {
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
@@ -1423,15 +1526,19 @@ extern "C" void app_main() {
   animSetBackground(animSurround);
   animSetSpeed(animSpeed);
 
+  // The corner icon waits for the pet to own the panel: currentView is already
+  // VIEW_ANIM through the boot card and the WiFi info screen, so it needs a
+  // separate flag rather than a view test.
+  bool petOnScreen = false;
 #if ENABLE_WIFI
   // Leave the WiFi info screen up for a few seconds, then start the idle
   // animation — unless something already asked for a specific state.
   // Timed non-blocking so the serial/web handlers keep running throughout.
   const TickType_t wifiScreenUntil = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
-  bool switchedToAnim = false;
 #else
   currentView = VIEW_ANIM;
   requestState("idle");
+  petOnScreen = true;
 #endif
 
   // Start the nap timer from the moment the pet is actually on screen. A hook
@@ -1441,8 +1548,8 @@ extern "C" void app_main() {
 
   while (true) {
 #if ENABLE_WIFI
-    if (!switchedToAnim && xTaskGetTickCount() >= wifiScreenUntil) {
-      switchedToAnim = true;
+    if (!petOnScreen && xTaskGetTickCount() >= wifiScreenUntil) {
+      petOnScreen = true;
       if (!stateRequested) {            // don't clobber an explicit request
         currentView = VIEW_ANIM;
         requestState("idle");
@@ -1457,6 +1564,7 @@ extern "C" void app_main() {
       autoAsleep = true;
       animPlayState("sleep");
     }
+    if (petOnScreen) transportIconTick();
     delayMs(200);
   }
 }
