@@ -315,7 +315,15 @@ static void drawBrandText() {
 //
 // Working a row band at a time keeps this off a 115 KB full-frame buffer, which
 // this board cannot afford — it has no PSRAM.
-static void drawLogoRows(int16_t y0, int16_t y1) {
+//
+// `rowsBeyondAreArtwork` says the rows outside this band already hold the right
+// pixels — true when the band is a repair made while a lip sweeps *down* over a
+// finished card. It only matters for the caption, which is one unclippable glyph
+// run: on the way up it may not go down before the band has reached its top row,
+// or its glyphs would spill into the still-dark rows above the reveal lip; on the
+// way down every row below the band is already painted, so any band that touches
+// the caption can repaint all of it and leave no seam.
+static void drawLogoRows(int16_t y0, int16_t y1, bool rowsBeyondAreArtwork = false) {
   if (y1 <= y0) return;
   tft.fillRect(0, y0, DISP_W, y1 - y0, C_DARKBG);
 
@@ -342,9 +350,10 @@ static void drawLogoRows(int16_t y0, int16_t y1) {
                      LOGO_BITMAP + (size_t)(ly0 - LOGO_Y) * LOGO_W);
   }
 
-  // The caption is a single unclippable glyph run, so it goes down on the first
-  // band that has cleared its top row — by then every row it covers is revealed.
-  if (y0 <= BRAND_Y && BRAND_Y < y1) drawBrandText();
+  // The caption is a single unclippable glyph run, so it goes down whole on the
+  // first band that can carry it — see the note on rowsBeyondAreArtwork above.
+  if (y0 < BRAND_Y + BRAND_TEXT_H && y1 > BRAND_Y &&
+      (rowsBeyondAreArtwork || y0 <= BRAND_Y)) drawBrandText();
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -514,6 +523,53 @@ static void termAddChar(char c) {
 //  ANIMATIONS
 // ═════════════════════════════════════════════════════════════
 
+// ── Boot card ─────────────────────────────────────────────────
+// Fixed pacing, not the pet's speed setting: this is a one-shot boot flourish,
+// and tying it to animSpeed made the UI's speed slider look like it controlled
+// the pet when it only ever changed this.
+#define BOOT_STEP_MS 24
+#define BOOT_STEPS   30
+
+// The sweeping lip's two tones. The reveal can afford a white leading row because
+// it only ever travels over dark background, but the return sweep crosses the
+// white card too, where white-on-white would vanish. These two read as a lit edge
+// over the dark surround and as a shadow over the card, so the sweep stays one
+// unbroken line the whole way down.
+#define LIP_DIM    Display::color565(150, 152, 158)
+#define LIP_SHADOW Display::color565(70, 72, 78)
+
+// Ease-in-out on [0,1]: the edge pulls away slowly, accelerates, then settles.
+static float easeInOut(float p) {
+  return (p < 0.5f) ? 2.0f * p * p : 1.0f - 2.0f * (1.0f - p) * (1.0f - p);
+}
+
+// Second pass over the same artwork: the lit edge runs back down the finished
+// card, as if the page had settled and the light swept across it once more.
+//
+// Nothing is exposed this time, so this is a repair rather than a reveal — and
+// the panel cannot be read back, so a lip left behind would stay there for good.
+// Each step therefore repaints the band the previous lip is sitting in, which is
+// rows [trail, y) — the pair it covers and no more — and only then lays the new
+// lip below. Total traffic is one more screenful, and unlike clearing the screen
+// and re-revealing there is no black frame at the turn.
+static void animLogoReturnSweep() {
+  int16_t trail = 0;                    // rows above this still hold the last lip
+
+  for (int s = 1; s <= BOOT_STEPS; s++) {
+    // Stop two rows short of the bottom so the lip always fits on the panel.
+    int16_t y = (int16_t)(easeInOut((float)s / BOOT_STEPS) * (DISP_H - 2) + 0.5f);
+    if (y < trail + 2) continue;        // sub-pixel step, nothing to repaint
+
+    drawLogoRows(trail, y, true);       // also erases the previous lip
+    tft.fillRect(0, y, DISP_W, 1, LIP_DIM);
+    tft.fillRect(0, y + 1, DISP_W, 1, LIP_SHADOW);
+    trail = y;
+    delayMs(BOOT_STEP_MS);
+  }
+
+  drawLogoRows(trail, DISP_H, true);    // run the last lip off the bottom edge
+}
+
 // Boot animation: the artwork rolls up from the bottom edge, its leading edge
 // catching the light like the lip of a turning page.
 //
@@ -525,16 +581,10 @@ static void animLogoReveal() {
   busy = true;
   tft.fillScreen(C_DARKBG);
 
-  const int steps = 30;
-  const uint16_t LIP_DIM = Display::color565(150, 152, 158);
   int16_t cursor = DISP_H;              // content is painted from cursor down
 
-  for (int s = 1; s <= steps; s++) {
-    // Ease-in-out: the page pulls away slowly, accelerates, then settles.
-    float p = (float)s / steps;
-    float eased = (p < 0.5f) ? 2.0f * p * p
-                             : 1.0f - 2.0f * (1.0f - p) * (1.0f - p);
-    int16_t y = (int16_t)(DISP_H - eased * DISP_H + 0.5f);
+  for (int s = 1; s <= BOOT_STEPS; s++) {
+    int16_t y = (int16_t)(DISP_H - easeInOut((float)s / BOOT_STEPS) * DISP_H + 0.5f);
     if (y >= cursor) continue;          // sub-pixel step, nothing new to expose
 
     drawLogoRows(y, cursor);            // also repaints the previous lip
@@ -547,13 +597,11 @@ static void animLogoReveal() {
     } else {
       cursor = 0;                       // don't paint a lip over the finished top
     }
-    // Fixed pacing, not the pet's speed setting: this is a one-shot boot
-    // flourish, and tying it to animSpeed made the UI's speed slider look like
-    // it controlled the pet when it only ever changed this.
-    delayMs(24);
+    delayMs(BOOT_STEP_MS);
   }
 
   drawLogoRows(0, cursor);              // clear any leftover lip
+  animLogoReturnSweep();                // and run the light back down over it
   delayMs(1500);
   busy = false;
 }
