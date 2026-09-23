@@ -1329,9 +1329,11 @@ extern "C" void app_main() {
   setBacklight(true);       // light the panel before the boot animation
 
   tft.init(240, 240);
-  // Rotation 3 = landscape rotated 180° vs. rotation 1. Chosen to match how the
-  // panel is physically mounted here (the original sketch used rotation 1).
-  tft.setRotation(3);
+  // Rotation 1 — the original sketch's setting. Note that "rotation 3 plus
+  // setFlipVertical(true)" is *not* the same orientation: it equals rotation 1
+  // with the row-order bit inverted, which with swap_xy on is a left-right
+  // mirror of the whole image. Plain rotation 1 is the one that reads correctly.
+  tft.setRotation(1);
   initColours();
 
   // Boot splash — commemorative card, pale yellow with black lettering.

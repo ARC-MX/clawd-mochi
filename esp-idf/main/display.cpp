@@ -104,18 +104,44 @@ void Display::setSPISpeed(uint32_t hz) {
 
 void Display::setRotation(uint8_t m) {
   _rotation = m & 3;
+  applyOrientation();
+}
 
+// Flips the panel top-to-bottom, on top of whatever rotation is set. Not a
+// rotation — no value of setRotation() produces a flip — so it is separate.
+void Display::setFlipVertical(bool flip) {
+  if (_flip_vertical == flip) return;
+  _flip_vertical = flip;
+  applyOrientation();
+}
+
+void Display::applyOrientation() {
   bool mx = false, my = false, mv = false;
-  int  x_gap = 0, y_gap = 0;
 
-  // Mirrors Adafruit_ST7789 for a 240x240 panel inside a 240x320 GRAM:
-  // _rowstart = 80, _rowstart2 = 0, _colstart = _colstart2 = 0.
+  // Mirrors Adafruit_ST7789 for a 240x240 panel inside a 240x320 GRAM.
   switch (_rotation) {
-    case 0:  mx = true;  my = true;  mv = false; x_gap = 0;  y_gap = 80; break;
-    case 1:  mx = false; my = true;  mv = true;  x_gap = 80; y_gap = 0;  break;
-    case 2:  mx = false; my = false; mv = false; x_gap = 0;  y_gap = 0;  break;
-    default: mx = true;  my = false; mv = true;  x_gap = 0;  y_gap = 0;  break;
+    case 0:  mx = true;  my = true;  mv = false; break;
+    case 1:  mx = false; my = true;  mv = true;  break;
+    case 2:  mx = false; my = false; mv = false; break;
+    default: mx = true;  my = false; mv = true;  break;
   }
+
+  // Mirroring and swap_xy compose: with MV set, frame column order (MX) is what
+  // the eye reads top-to-bottom, and row order (MY) is what it reads
+  // left-to-right. So the flip toggles MX when MV is set and MY when it is not.
+  // It has to happen *before* the gap below, because moving MY also moves the
+  // window — Adafruit's 80-row offset goes with whichever axis MY ends up on.
+  if (_flip_vertical) {
+    if (mv) mx = !mx; else my = !my;
+  }
+
+  // The 240x240 window has to land on the 240 rows of the controller's 320
+  // that are wired to the panel, so the gap is 80 whenever MY reverses that
+  // axis — and MV decides whether that axis is y or, swapped, x. That is
+  // Adafruit's _rowstart = 80 / _rowstart2 = 0 landing on whichever of
+  // _xstart/_ystart is the row direction. MX never moves the window.
+  int x_gap = 0, y_gap = 0;
+  if (my) (mv ? x_gap : y_gap) = 80;
 
   ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(_panel, mv));
   ESP_ERROR_CHECK(esp_lcd_panel_mirror(_panel, mx, my));

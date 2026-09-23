@@ -20,6 +20,9 @@ public:
   // lifecycle
   void init(uint16_t w, uint16_t h);
   void setRotation(uint8_t m);
+  // Top-to-bottom flip on top of the current rotation. Not a rotation — no
+  // value of setRotation() produces a flip — so it is applied separately.
+  void setFlipVertical(bool flip);
   void setSPISpeed(uint32_t hz);
 
   // colour
@@ -75,6 +78,8 @@ public:
   int16_t height() const { return _height; }
 
 private:
+  // Pushes the rotation + flip bits and the matching window gap to the panel.
+  void applyOrientation();
   // Every primitive decomposes into a solid-colour rectangle fill.
   void fillArea(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
   void drawChar(int16_t x, int16_t y, unsigned char c, uint16_t color,
@@ -88,6 +93,7 @@ private:
 
   uint16_t _width = 240, _height = 240;
   uint8_t _rotation = 0;
+  bool _flip_vertical = false;
 
   int16_t _cursor_x = 0, _cursor_y = 0;
   uint16_t _textcolor = ST77XX_WHITE, _textbg = ST77XX_WHITE;
