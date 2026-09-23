@@ -79,6 +79,9 @@ body{background:#1c1c20;font-family:'Courier New',monospace;color:#e8e4dc;
   border-radius:12px;padding:12px;flex-direction:column;gap:10px;display:none}
 .cwrap.open{display:flex}
 .crow{display:flex;gap:8px}
+.ci{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1}
+.cl{font-size:10px;color:#7a7068;letter-spacing:1px;font-weight:bold}
+.cs{width:100%;height:38px;border-radius:7px;border:1.5px solid #38343a;cursor:pointer;padding:0}
 .dacts{display:flex;gap:7px}
 .db{flex:1;background:#1c1820;border:1.5px solid #38343a;border-radius:9px;
   color:#c0bab8;font-family:'Courier New',monospace;font-size:11px;
@@ -132,6 +135,21 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
     <span class="nm">Canvas</span>
     <span class="ht">draw on display</span>
   </button>
+</div>
+
+<div class="ctrl">
+  <div class="ci" style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:stretch">
+    <span class="cl" style="font-size:10px;color:#8a8278;letter-spacing:1px;font-weight:bold;text-align:center">PET BG</span>
+    <input type="color" class="cs" id="bgCol" value="#e8f2ee" oninput="onBgChange(this.value)">
+  </div>
+  <div class="ci" style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:stretch">
+    <span class="cl" style="font-size:10px;color:#8a8278;letter-spacing:1px;font-weight:bold;text-align:center">CANVAS</span>
+    <input type="color" class="cs" id="cvCol" value="#aa4818" oninput="onCanvasBgChange(this.value)">
+  </div>
+  <div class="ci" style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:stretch">
+    <span class="cl" style="font-size:10px;color:#8a8278;letter-spacing:1px;font-weight:bold;text-align:center">PEN COLOR</span>
+    <input type="color" class="cs" id="penCol" value="#000000">
+  </div>
 </div>
 
 <div class="sec">// theme</div>
@@ -210,13 +228,6 @@ let blOn        = true;
 let isBusy      = false;
 let drawing     = false;
 let lastX = 0, lastY = 0;
-
-// The canvas has one pen and one paper colour. The row of pickers that used to
-// set them — and the pet's background with them — is gone; the pet's background
-// still follows `bg#RRGGBB` over serial or BLE, which is not a knob the phone
-// controller needs.
-const CANVAS_BG  = '#da1100';   // the firmware's C_ORANGE, so the preview matches
-const PEN_COLOR  = '#000000';
 let tt;
 
 
@@ -265,8 +276,18 @@ async function waitNotBusy() {
 // ── Background colour ───────────────────────────────────────────
 // Pet background: what the animation shows through (the player treats the
 // artwork's field index as transparent, so this is the real background).
+async function onBgChange(hex) {
+  if (canvasOpen) return;          // the canvas has its own picker
+  await req('/redraw?bg=' + encodeURIComponent(hex));
+}
+
 // Canvas background: only meaningful in draw mode; sends the stroke surface's
 // colour and repaints the local preview.
+async function onCanvasBgChange(hex) {
+  if (canvasOpen) await req('/draw/clear?bg=' + encodeURIComponent(hex));
+  redrawCanvas(hex);
+}
+
 // ── Views ───────────────────────────────────────────────────────
 async function setView(v) {
   if (isBusy || termOpen || canvasOpen) return;
@@ -315,8 +336,9 @@ async function toggleCanvas() {
     btn.classList.toggle('active', canvasOpen && parseInt(btn.dataset.v) === 3));
   await req('/canvas?on=' + (canvasOpen ? 1 : 0));
   if (canvasOpen) {
-    redrawCanvas();
-    await req('/draw/clear');
+    const bg = document.getElementById('cvCol').value;
+    redrawCanvas(bg);
+    await req('/draw/clear?bg=' + encodeURIComponent(bg));
     // lock all other buttons
     document.querySelectorAll('.vbtn,.lbtn').forEach(b => b.disabled = true);
     toast('canvas active');
@@ -365,8 +387,8 @@ function getPos(e) {
   return { x: (s.clientX - r.left) * sx, y: (s.clientY - r.top) * sy };
 }
 
-function redrawCanvas() {
-  ctx.fillStyle = CANVAS_BG;
+function redrawCanvas(hex) {
+  ctx.fillStyle = hex;
   ctx.fillRect(0, 0, cvs.width, cvs.height);
 }
 
@@ -378,13 +400,13 @@ function startDraw(e) {
   strokePts.push({ x: Math.round(p.x), y: Math.round(p.y) });
   // draw dot on canvas preview only — no display send yet
   ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-  ctx.fillStyle = PEN_COLOR; ctx.fill();
+  ctx.fillStyle = document.getElementById('penCol').value; ctx.fill();
 }
 function moveDraw(e) {
   if (!drawing) return; e.preventDefault();
   const p = getPos(e);
   ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y);
-  ctx.strokeStyle = PEN_COLOR;
+  ctx.strokeStyle = document.getElementById('penCol').value;
   ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
   strokePts.push({ x: Math.round(p.x), y: Math.round(p.y) });
   lastX = p.x; lastY = p.y;
@@ -392,7 +414,7 @@ function moveDraw(e) {
 async function endDraw(e) {
   if (!drawing) return; drawing = false;
   if (!canvasOpen || strokePts.length < 1) return;
-  const pen = PEN_COLOR.replace('#', '');
+  const pen = document.getElementById('penCol').value.replace('#', '');
   const pts = strokePts.map(p => p.x + ',' + p.y).join(';');
   await req('/draw/stroke?pen=' + pen + '&pts=' + encodeURIComponent(pts));
   strokePts = [];
@@ -408,8 +430,9 @@ cvs.addEventListener('touchend',   endDraw);
 
 // Clear = clear both web canvas and display
 async function clearAll() {
-  redrawCanvas();
-  await req('/draw/clear');
+  const bg = document.getElementById('bgCol').value;
+  redrawCanvas(bg);
+  await req('/draw/clear?bg=' + encodeURIComponent(bg));
   toast('cleared');
 }
 
@@ -522,6 +545,7 @@ function resetDevice() {
     }
     // Sync pet background. The device is the source of truth: it also holds any
     // colour set over serial/BLE, so do not keep a second copy of the default.
+    if (j.bg) document.getElementById('bgCol').value = j.bg;
     // The device's own name and hotspot password, so the card shows what is
     // actually in force rather than what was last typed here.
     if (j.name) document.getElementById('devName').value = j.name;
@@ -535,7 +559,7 @@ function resetDevice() {
     }
   } catch(e) {}
   // The canvas is local to draw mode and has no device-side sync point.
-  redrawCanvas();
+  redrawCanvas(document.getElementById('cvCol').value);
 })();
 </script>
 </body>

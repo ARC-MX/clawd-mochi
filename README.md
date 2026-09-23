@@ -138,6 +138,9 @@ You should see the web controller:
 | Done               | Plays the theme's finished animation            |
 | Claude Code        | Shows code display, opens terminal              |
 | Canvas             | Enter drawing mode — draw on display from phone |
+| Pet BG             | Background the pet shows through                |
+| Canvas BG          | Background of the drawing surface (separate)    |
+| Pen color          | Sets drawing color for canvas                   |
 | Display on/off     | Toggles the backlight                           |
 | Expression         | Plays any state the mounted theme provides      |
 | Upload theme       | Replaces the pack on the device — see Customisation |
@@ -260,7 +263,7 @@ smoothness for size rather than silently speeding a theme up.
 Playback rate comes from the pack, not from the firmware: each `.caf` stores a
 per-frame duration taken from the source GIF, so a set authored at 8 fps and one
 authored at 17 fps each play at the rate they were drawn for. The background
-colour follows `bg#RRGGBB` over serial or BLE, and is a runtime setting — palette index 0 in every
+colour follows `bg#RRGGBB`, and is a runtime setting — palette index 0 in every
 frame is transparent, so the colour baked into the `.caf` is never displayed.
 
 ### Logo animation duration
