@@ -630,6 +630,33 @@ static void sendJson(httpd_req_t* req, const char* body) {
   httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
+// esp_http_server hands query strings back exactly as they arrived — its own
+// header says the parts are not URL-decoded — while a browser's fetch()
+// percent-encodes whatever it is given. Nothing here decoded them, so the page's
+// encodings arrived intact and wrong: "%23aabbcc" reached hexToRgb565 (which
+// wants six hex digits, so the pet background stayed white) and
+// "12%2C34%3B56%2C78" reached the stroke parser (which splits on ';', so the web
+// canvas drew nothing). Decode in place: a decoded string is never longer than
+// its encoding, so the caller's own buffer is a safe destination.
+static void urlDecode(char* s) {
+  char* w = s;
+  for (const char* r = s; *r; r++) {
+    if (*r == '+') {                       // form encoding's space
+      *w++ = ' ';
+      continue;
+    }
+    if (*r == '%' && isxdigit((unsigned char)r[1]) && isxdigit((unsigned char)r[2])) {
+      const int hi = isdigit((unsigned char)r[1]) ? r[1] - '0' : (r[1] | 0x20) - 'a' + 10;
+      const int lo = isdigit((unsigned char)r[2]) ? r[2] - '0' : (r[2] | 0x20) - 'a' + 10;
+      *w++ = (char)((hi << 4) | lo);
+      r += 2;
+      continue;
+    }
+    *w++ = *r;
+  }
+  *w = 0;
+}
+
 static bool getQueryArg(httpd_req_t* req, const char* key, char* out, size_t outlen) {
   size_t len = httpd_req_get_url_query_len(req) + 1;
   if (len <= 1) return false;
