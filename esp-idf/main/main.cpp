@@ -115,6 +115,10 @@ static bool     stateRequested = false;
 static uint16_t animSurround = 0xFFFF;
 static bool     busy         = false;
 static bool     backlightOn  = true;
+// Terminal mode, a mode *within* VIEW_CODE (the rest of its state lives with
+// the TERM_* constants below). Declared up here because requestState() clears it
+// when a state request takes the panel back from the user's views.
+static bool     termMode     = false;
 
 // ── Sleeping when nothing is driving the pet ──────────────────
 // The pet only moves when something drives it — Claude Code hooks over serial
@@ -136,9 +140,20 @@ static void noteActivity() { lastActivity = xTaskGetTickCount(); }
 // The one way to change state: cancels any auto-sleep and restarts the timer,
 // then hands off to the player. Explicitly asking for a state is itself
 // activity, so callers need not call noteActivity() as well.
+//
+// A state request is also the pet's normal mode announcing itself: Claude Code
+// drives the device through here (a hook sends `state <n>`), so if one of the
+// user's views owns the panel — the code view, the canvas, an image push — it
+// gets handed back. That is what makes the canvas safe to draw on while an agent
+// is working: the drawing survives until the agent next says something, and then
+// the pet takes over rather than fighting it for the screen.
 static void requestState(const char* state) {
   autoAsleep = false;
   noteActivity();
+  if (currentView != VIEW_ANIM) {
+    currentView = VIEW_ANIM;
+    termMode = false;
+  }
   animPlayState(state);
 }
 
@@ -197,7 +212,7 @@ static uint16_t statusColor = 0;   // 0 = fall back to C_BLACK
 #define TERM_PAD_X      8
 #define TERM_PAD_Y     18
 
-static bool     termMode    = false;
+// termMode is declared with the other view state, above requestState().
 static char     termLines[TERM_ROWS][TERM_COLS + 1];
 static uint8_t  termRow     = 0;
 static uint8_t  termCol     = 0;
@@ -744,6 +759,9 @@ static esp_err_t routeCanvas(httpd_req_t* req) {
   noteActivity();
   char on[8] = {0};
   if (getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0) {
+    // Stop the player before the canvas owns the panel: it otherwise keeps
+    // pushing frames and repaints its artwork over the strokes every ~70 ms.
+    requestState("");
     currentView = VIEW_DRAW;
     tft.fillScreen(drawBgColor);
   }
@@ -1157,6 +1175,7 @@ static void serialReply(const char* s) {
 // Receives DISP_W x DISP_H raw RGB565 (little-endian) after answering "ready".
 // Bands of rows go straight to the panel, so no full-screen buffer is needed.
 static void serialReceiveImage() {
+  requestState("");                 // the image owns the panel until a state request
   currentView = VIEW_DRAW;
   termMode = false;
   serialReply("ready");
@@ -1248,6 +1267,7 @@ static void serialHandleLine(char* line) {
     serialReply("ok"); return;
   }
   if (strcmp(line, "canvas") == 0) {
+    requestState("");                 // stop the player, or it repaints over the canvas
     currentView = VIEW_DRAW; termMode = false;
     tft.fillScreen(drawBgColor); serialReply("ok"); return;
   }
