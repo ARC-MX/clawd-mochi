@@ -87,6 +87,8 @@ def build_commands(argv):
         return ["logo"]
     if sub == "canvas":
         return ["canvas"]
+    if sub == "bright":
+        return ["bright" + ((" " + rest[0]) if rest else "")]
     if sub == "state":
         # state <name> — play a themed clawd animation; "state off" goes back to
         # the built-in eyes. "state list" prints the states the theme provides.

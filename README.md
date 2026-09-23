@@ -142,6 +142,7 @@ You should see the web controller:
 | Canvas BG          | Background of the drawing surface (separate)    |
 | Pen color          | Sets drawing color for canvas                   |
 | Display on/off     | Toggles the backlight                           |
+| Brightness         | Backlight level, 0-100% (stored on the device)   |
 | Expression         | Plays any state the mounted theme provides      |
 | Upload theme       | Replaces the pack on the device — see Customisation |
 | ✓ done (in canvas) | Exits canvas mode                               |

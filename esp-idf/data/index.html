@@ -53,6 +53,10 @@ body{background:#1c1c20;font-family:'Courier New',monospace;color:#e8e4dc;
 .vbtn[data-v="2"].active{border-color:#4a8acd;background:#0c1628}
 .vbtn[data-v="3"].active{border-color:#38343a;background:#201c18}
 
+/* Brightness slider */
+.brt-row{width:100%;max-width:390px;display:flex;align-items:center;gap:10px}
+.sl{font-size:10px;color:#6a6058;white-space:nowrap;min-width:36px}
+input[type=range]{flex:1;accent-color:#c96a3e;cursor:pointer;height:20px}
 .sv{font-size:11px;color:#c96a3e;min-width:44px;text-align:right;font-weight:bold}
 
 /* Terminal */
@@ -111,6 +115,13 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
 <div class="sec">// controls</div>
 <div class="ctrl">
   <button class="cbtn on" id="blBtn" onclick="toggleBL()">&#9728; display on</button>
+</div>
+
+<div class="sec">// brightness</div>
+<div class="brt-row">
+  <span class="sl">dim</span>
+  <input type="range" id="blv" min="0" max="100" value="25" step="1" oninput="setBrightness(this.value)">
+  <span class="sv" id="blvV">25%</span>
 </div>
 
 <div class="sec">// views</div>
@@ -319,10 +330,25 @@ async function setView(v) {
 async function toggleBL() {
   blOn = !blOn;
   await req('/backlight?on=' + (blOn ? 1 : 0));
+  syncBLButton(blOn);
+}
+
+function syncBLButton(on) {
   const b = document.getElementById('blBtn');
-  b.textContent = blOn ? '\u2600 display on' : '\u25cb display off';
-  b.classList.toggle('on', blOn);
-  b.classList.toggle('dim', !blOn);
+  b.textContent = on ? '\u2600 display on' : '\u25cb display off';
+  b.classList.toggle('on', on);
+  b.classList.toggle('dim', !on);
+}
+
+// The backlight level, 0..100. The device keeps it in NVS and restores it at
+// boot, and it is the same setting the display button toggles: "on" comes back at
+// this level rather than at a fixed one.
+async function setBrightness(v) {
+  v = Math.max(0, Math.min(100, parseInt(v, 10) || 0));
+  document.getElementById('blvV').textContent = v + '%';
+  blOn = v > 0;
+  syncBLButton(blOn);
+  await req('/backlight?v=' + v);
 }
 
 // ── Canvas toggle ───────────────────────────────────────────────
@@ -540,12 +566,15 @@ function resetDevice() {
   try {
     const r = await fetch('/state');
     const j = await r.json();
-    // Sync backlight
+    // Sync backlight: the level, and 0 while the display is off.
     if (j.bl === false) {
       blOn = false;
-      const b = document.getElementById('blBtn');
-      b.textContent = '\u25cb display off';
-      b.classList.remove('on'); b.classList.add('dim');
+      syncBLButton(false);
+    }
+    if (typeof j.blv === 'number') {
+      const v = j.bl === false ? 0 : j.blv;
+      document.getElementById('blv').value = v;
+      document.getElementById('blvV').textContent = v + '%';
     }
     // Sync pet background. The device is the source of truth: it also holds any
     // colour set over serial/BLE, so do not keep a second copy of the default.

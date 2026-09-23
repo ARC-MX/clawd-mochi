@@ -46,6 +46,12 @@ bool settingsGetBg(uint16_t* colour);
 // caller can call it on a timer without wearing the flash out.
 bool settingsSetBg(uint16_t colour);
 
+// The backlight level in percent (0 = off). Same shape as the background: the
+// default lives in main.cpp, so the getter reports whether one was stored.
+bool settingsGetBrightness(uint8_t* pct);
+// Stores it, skipping a write when the value is already there.
+bool settingsSetBrightness(uint8_t pct);
+
 // True when the given name/password would be accepted.
 bool settingsNameValid(const char* name);
 bool settingsPassValid(const char* pass);

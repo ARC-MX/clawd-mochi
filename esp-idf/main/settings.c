@@ -124,6 +124,33 @@ bool settingsSetBg(uint16_t colour) {
   return true;
 }
 
+bool settingsGetBrightness(uint8_t* pct) {
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+  uint8_t v = 0;
+  const bool found = (nvs_get_u8(h, "bl", &v) == ESP_OK);
+  nvs_close(h);
+  if (found && pct) *pct = v;
+  return found;
+}
+
+bool settingsSetBrightness(uint8_t pct) {
+  uint8_t stored = 0;
+  if (settingsGetBrightness(&stored) && stored == pct) return true;
+
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+  esp_err_t e = nvs_set_u8(h, "bl", pct);
+  if (e == ESP_OK) e = nvs_commit(h);
+  nvs_close(h);
+  if (e != ESP_OK) {
+    ESP_LOGW(TAG, "could not store the brightness");
+    return false;
+  }
+  ESP_LOGI(TAG, "stored brightness %u%%", (unsigned)pct);
+  return true;
+}
+
 bool settingsSave(const char* name, const char* pass, const char** err) {
   const char* n = (name && name[0]) ? name : s_name;
   const char* p = (pass && pass[0]) ? pass : s_pass;

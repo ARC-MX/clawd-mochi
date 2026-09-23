@@ -172,7 +172,8 @@ static void requestState(const char* state) {
 
 // Backlight PWM: 8-bit duty, duty==0 → off.
 #define BL_DUTY_MIN  64    // ~25% — dim but clearly visible
-#define BL_DUTY_FULL 255   // 100% (never used by default)
+#define BL_DUTY_FULL 255   // 100%
+#define BL_DEFAULT_PCT 25  // what the level is before anyone sets one
 
 static void backlightInit() {
   ledc_timer_config_t tim = {};
@@ -201,8 +202,25 @@ static void setBacklightDuty(uint32_t duty) {
   ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+// The chosen level, in percent. Kept even while the display is off, so the on/off
+// button returns to it and the slider has something to show.
+static uint8_t blLevel = BL_DEFAULT_PCT;
+static bool    blDirty = false;      // a level not yet persisted; see the loop
+
+static void setBacklightLevel(uint8_t pct) {
+  if (pct > 100) pct = 100;
+  if (pct != blLevel) {
+    blLevel = pct;
+    blDirty = true;
+    ESP_LOGI(TAG, "backlight %u%%", (unsigned)pct);
+  }
+  setBacklightDuty((uint32_t)pct * 255 / 100);
+}
+
 static void setBacklight(bool on) {
-  setBacklightDuty(on ? BL_DUTY_MIN : 0);   // "on" = 3% brightness
+  // "On" means the chosen level, not a fixed one: the slider would otherwise be
+  // undone by a tap on the display button.
+  setBacklightDuty(on ? (uint32_t)blLevel * 255 / 100 : 0);
 }
 static uint16_t drawBgColor  = 0;
 
@@ -860,9 +878,15 @@ static esp_err_t routeDrawStroke(httpd_req_t* req) {
 
 static esp_err_t routeBacklight(httpd_req_t* req) {
   noteActivity();
-  char on[8] = {0};
-  bool enable = getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0;
-  setBacklight(enable);
+  char v[8] = {0};
+  if (getQueryArg(req, "v", v, sizeof(v))) {        // 0..100 %
+    const int pct = atoi(v);
+    setBacklightLevel((uint8_t)(pct < 0 ? 0 : (pct > 100 ? 100 : pct)));
+  } else {
+    char on[8] = {0};
+    bool enable = getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0;
+    setBacklight(enable);
+  }
   sendJson(req, "{\"ok\":1}");
   return ESP_OK;
 }
@@ -1118,12 +1142,13 @@ static esp_err_t routeState(httpd_req_t* req) {
   // they go into the JSON verbatim.
   char j[512];
   snprintf(j, sizeof(j),
-           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,"
+           "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"blv\":%u,"
            "\"bg\":\"%s\",\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\"}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
+           (unsigned)blLevel,
            bg, states, settingsName(), settingsPass());
   sendJson(req, j);
   return ESP_OK;
@@ -1473,6 +1498,24 @@ static void serialHandleLine(char* line) {
     return;
   }
 
+  // bright <0-100> — the backlight level; a bare `bright` reports it. Same
+  // setting the web UI's slider changes, and it is stored, so it survives a
+  // reboot.
+  if (strncmp(line, "bright", 6) == 0 && (line[6] == 0 || line[6] == ' ')) {
+    char* arg = line + 6;
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      char reply[24];
+      snprintf(reply, sizeof(reply), "%u", (unsigned)blLevel);
+      serialReply(reply);
+      return;
+    }
+    int pct = atoi(arg);
+    setBacklightLevel((uint8_t)(pct < 0 ? 0 : (pct > 100 ? 100 : pct)));
+    serialReply("ok");
+    return;
+  }
+
   // sleepafter <seconds> — how long the pet waits with nothing driving it
   // before napping. 0 disables. Reports the current value with no argument.
   if (strncmp(line, "sleepafter", 10) == 0 &&
@@ -1739,6 +1782,10 @@ extern "C" void app_main() {
 
   gpio_set_direction((gpio_num_t)TFT_BLK, GPIO_MODE_OUTPUT);
   backlightInit();          // PWM, starts at 0%
+  // The stored level comes up with the display instead of arriving a moment later,
+  // which would be a visible step.
+  uint8_t storedBl = 0;
+  if (settingsGetBrightness(&storedBl)) setBacklightLevel(storedBl);
   setBacklight(true);       // light the panel before the boot animation
 
   tft.init(240, 240);
@@ -1872,6 +1919,17 @@ extern "C" void app_main() {
         (bgStoredAt == 0 || (xTaskGetTickCount() - bgStoredAt) >= pdMS_TO_TICKS(2000))) {
       if (settingsSetBg(animSurround)) persistedBg = animSurround;
       bgStoredAt = xTaskGetTickCount();
+    }
+
+    // The backlight level, same deal: the slider fires continuously while
+    // dragging, so writes are throttled and the level it ends on is stored after
+    // the drag stops.
+    static TickType_t blStoredAt = 0;
+    if (blDirty &&
+        (blStoredAt == 0 || (xTaskGetTickCount() - blStoredAt) >= pdMS_TO_TICKS(2000))) {
+      settingsSetBrightness(blLevel);
+      blDirty = false;
+      blStoredAt = xTaskGetTickCount();
     }
     delayMs(200);
   }

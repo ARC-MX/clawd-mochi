@@ -44,8 +44,8 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
 | `GET /cmd?k=a` | 播放 logo 动画 |
 | `GET /cmd?k=q` | 退出终端模式，回到代码视图 |
 | `GET /char?c=<字符>` | 往终端打字（单字符） |
-| `GET /state` | `{view,busy,term,bl,bg,states,name,pass}` — `bg` 是当前宠物背景色，`states` 是当前主题提供的全部状态（空格分隔），`name`/`pass` 是生效中的设备名与热点密码 |
-| `GET /backlight?on=0\|1` | 背光开关 |
+| `GET /state` | `{view,busy,term,bl,blv,bg,states,name,pass}` — `bg` 是当前宠物背景色，`states` 是当前主题提供的全部状态（空格分隔），`name`/`pass` 是生效中的设备名与热点密码 |
+| `GET /backlight?on=0\|1` · `?v=<0..100>` | 背光开关 / 亮度百分比（存 NVS） |
 | `GET /theme/state?name=<状态>` | 播放主题里的某个状态；`name=` 为空则停止播放 |
 | `POST /theme/begin` | **清空主题目录**，为上传腾空间（见下方"主题替换"） |
 | `POST /theme/put?name=<文件>` | 流式写入一个主题文件，请求体即文件内容 |
@@ -198,6 +198,7 @@ python3 tools/mochi.py img photo.jpg
 | `t<文本>` | 往终端打字 |
 | `status[N] [-c#RRGGBB] <文本>` | 状态文字，显示在静态视图上（N=1..4 字号） |
 | `bg#RRGGBB` · `canvas` · `logo` | 背景 / 画布 / logo |
+| `bright <0-100>` | 背光亮度百分比（存 NVS，重启保留）；无参数回显当前档位 |
 | `sleepafter <秒>` | 多久没动静就进入 `sleep`（0 关闭，无参数则查询）。默认 120 秒，**不持久化**，重启回到默认。任何命令都会重置计时，但只有状态请求能把它唤醒 |
 | `line x1,y1,x2,y2,#RRGGBB` | 画线 |
 | `img` | 接收整幅原始 RGB565 图像 |
