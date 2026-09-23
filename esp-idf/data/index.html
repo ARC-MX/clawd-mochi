@@ -416,8 +416,12 @@ async function endDraw(e) {
   if (!canvasOpen || strokePts.length < 1) return;
   const pen = document.getElementById('penCol').value.replace('#', '');
   const pts = strokePts.map(p => p.x + ',' + p.y).join(';');
-  await req('/draw/stroke?pen=' + pen + '&pts=' + encodeURIComponent(pts));
   strokePts = [];
+  // Deliberately not req(): it discards the reply, and a stroke the device
+  // refused looked exactly like one it drew.
+  const r = await fetch('/draw/stroke?pen=' + pen + '&pts=' + encodeURIComponent(pts));
+  const j = await r.json().catch(() => ({ e: 'no reply' }));
+  if (!j || !j.ok) toast('stroke not drawn: ' + ((j && j.e) || 'rejected'), false);
 }
 
 cvs.addEventListener('mousedown',  startDraw);

@@ -820,10 +820,15 @@ static esp_err_t routeDrawClear(httpd_req_t* req) {
 static esp_err_t routeDrawStroke(httpd_req_t* req) {
   noteActivity();
   char pen[16] = {0};
-  char pts[512] = {0};
-  if (!getQueryArg(req, "pen", pen, sizeof(pen)) ||
-      !getQueryArg(req, "pts", pts, sizeof(pts))) {
-    sendJson(req, "{\"ok\":1}");
+  char pts[2048] = {0};
+  // Silence here was the wrong default: a stroke that never arrives looked
+  // exactly like one that was drawn, so the page had nothing to report.
+  if (!getQueryArg(req, "pen", pen, sizeof(pen))) {
+    sendJson(req, "{\"e\":\"no pen\"}");
+    return ESP_OK;
+  }
+  if (!getQueryArg(req, "pts", pts, sizeof(pts))) {
+    sendJson(req, "{\"e\":\"stroke too long\"}");
     return ESP_OK;
   }
   const uint16_t color = hexToRgb565(pen);
@@ -1195,6 +1200,11 @@ static void startWebServer() {
   // 13 routes are registered below; keep a little headroom. The upload routes
   // also need a bigger stack than 4 KB while writing to LittleFS.
   config.max_uri_handlers = 20;
+  // A canvas stroke is one query string, and a finger's scribble generates a
+  // point per pointer event — half a second of drawing already passed the 512-byte
+  // default, and the server rejected it before the handler ever saw it. 2 KB is
+  // about 250 points, i.e. several seconds of continuous drawing.
+  config.max_uri_len     = 2048;
   config.stack_size       = 8192;
   config.recv_wait_timeout = 30;    // a 2 MB pack over WiFi is not fast
   config.send_wait_timeout = 30;
