@@ -35,7 +35,6 @@
 
 #include "driver/gpio.h"
 #include "driver/ledc.h"
-#include "driver/uart.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_log.h"
 
@@ -1066,7 +1065,6 @@ static void mountStorage() {
 //  direction while looking alive in the other.
 // ═════════════════════════════════════════════════════════════
 
-#define SERIAL_RX_BUF   2048     // UART0's ring (see serialInit for why it stays)
 #define SERIAL_RX_RING  4096     // USB-Serial-JTAG's ring: >64 required, and
                                  // one image band is 3840 bytes
 #define SERIAL_LINE_MAX 128
@@ -1317,11 +1315,8 @@ static void serialInit() {
   ESP_ERROR_CHECK(s_cmdQueue != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
   xTaskCreate(cmdWorkerTask, "cmd_worker", 6144, nullptr, 5, nullptr);
 
-  // The host link. UART0's driver is still installed here, but nothing reads
-  // its FIFO any more — it goes away with the include in the next commit.
-  esp_err_t err = uart_driver_install(UART_NUM_0, SERIAL_RX_BUF, 0, 0, nullptr, 0);
-  ESP_LOGD(TAG, "UART0 driver install -> %s", esp_err_to_name(err));
-
+  // The host link. No UART0 driver: the console writes its own TX FIFO through
+  // esp_stdio's VFS without one, and nothing here would read UART0's.
   // USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT() sizes both rings at 256; the TX ring
   // only has to be non-zero for the install to pass, since nothing here writes
   // through it — replies go out via printf on the console path.
