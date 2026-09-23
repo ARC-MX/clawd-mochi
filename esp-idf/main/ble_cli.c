@@ -34,23 +34,27 @@ static int chrAccess(uint16_t connHandle, uint16_t attrHandle,
     return BLE_ATT_ERR_UNLIKELY;
   }
 
-  char line[BLE_CLI_LINE_MAX];
+  cmd_item_t item = {};
+  item.src = CMD_SRC_BLE;
   uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-  uint16_t n = len < sizeof(line) - 1 ? len : (uint16_t)(sizeof(line) - 1);
-  if (os_mbuf_copydata(ctxt->om, 0, n, line) != 0) {
+  uint16_t n = len < sizeof(item.line) - 1 ? len : (uint16_t)(sizeof(item.line) - 1);
+  if (os_mbuf_copydata(ctxt->om, 0, n, item.line) != 0) {
     return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
   }
-  line[n] = 0;
+  item.line[n] = 0;
 
   // Trim trailing CR/LF/space; a write may or may not carry a terminator.
-  while (n > 0 && (line[n - 1] == '\r' || line[n - 1] == '\n' || line[n - 1] == ' ')) {
-    line[--n] = 0;
+  while (n > 0 && (item.line[n - 1] == '\r' || item.line[n - 1] == '\n' ||
+                   item.line[n - 1] == ' ')) {
+    item.line[--n] = 0;
   }
   if (n == 0) return 0;
 
-  ESP_LOGD(TAG, "write: %s", line);
-  if (xQueueSend(s_cmdQueue, line, 0) != pdTRUE) {
-    ESP_LOGW(TAG, "command queue full, dropped: %s", line);
+  // The tag rides with the line: the worker can run it long after another
+  // producer would have overwritten any "last source" side variable.
+  ESP_LOGD(TAG, "write: %s", item.line);
+  if (xQueueSend(s_cmdQueue, &item, 0) != pdTRUE) {
+    ESP_LOGW(TAG, "command queue full, dropped: %s", item.line);
   }
   return 0;
 }

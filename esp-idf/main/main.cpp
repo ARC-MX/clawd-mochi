@@ -39,6 +39,7 @@
 #include "esp_log.h"
 
 #include "display.h"
+#include "cmd_queue.h"
 #include "logo_data.h"
 #include "splash_text.h"
 #include "splash_credit.h"
@@ -130,6 +131,26 @@ static bool     autoAsleep    = false;  // we napped it, the host did not ask
 
 // Called by every command path. Cheap enough to call unconditionally.
 static void noteActivity() { lastActivity = xTaskGetTickCount(); }
+
+// Which transport last delivered a command, and when. Stamped once, at the
+// transport — see cmd_queue.h for why the tag rides in the queue item for
+// serial and BLE. Drives the link icon on the animation view.
+static uint8_t    lastTransport     = CMD_SRC_NONE;
+static TickType_t lastTransportTick = 0;
+
+// Called by the queued readers (which know the tag) and by the two paths that
+// skip the queue: `img`, which owns the port itself, and the HTTP routes.
+static void noteTransport(uint8_t src) {
+  lastTransport     = src;
+  lastTransportTick = xTaskGetTickCount();
+}
+
+// The HTTP routes run inline on the httpd task — they need their reply in the
+// same call — so they cannot carry a tag through the queue like the others.
+static void noteHttp() {
+  noteTransport(CMD_SRC_HTTP);
+  noteActivity();
+}
 
 // The one way to change state: cancels any auto-sleep and restarts the timer,
 // then hands off to the player. Explicitly asking for a state is itself
@@ -633,6 +654,7 @@ static void applyCommand(char c) {
 }
 
 static esp_err_t routeCmd(httpd_req_t* req) {
+  noteHttp();
   char k[8] = {0};
   if (!getQueryArg(req, "k", k, sizeof(k)) || k[0] == 0) {
     sendJson(req, "{\"e\":1}");
@@ -644,7 +666,7 @@ static esp_err_t routeCmd(httpd_req_t* req) {
 }
 
 static esp_err_t routeChar(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   if (!termMode) { sendJson(req, "{\"ok\":1}"); return ESP_OK; }
   char c[8] = {0};
   if (getQueryArg(req, "c", c, sizeof(c)) && c[0] != 0) {
@@ -658,7 +680,7 @@ static esp_err_t routeChar(httpd_req_t* req) {
 }
 
 static esp_err_t routeSpeed(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char v[8] = {0};
   if (getQueryArg(req, "v", v, sizeof(v))) {
     int s = atoi(v);
@@ -672,7 +694,7 @@ static esp_err_t routeSpeed(httpd_req_t* req) {
 }
 
 static esp_err_t routeRedraw(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     // Pet background only. This used to also set drawBgColor, which conflated
@@ -691,7 +713,7 @@ static esp_err_t routeRedraw(httpd_req_t* req) {
 }
 
 static esp_err_t routeCanvas(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char on[8] = {0};
   if (getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0) {
     currentView = VIEW_DRAW;
@@ -702,7 +724,7 @@ static esp_err_t routeCanvas(httpd_req_t* req) {
 }
 
 static esp_err_t routeDrawClear(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char bg[16] = {0};
   if (getQueryArg(req, "bg", bg, sizeof(bg))) {
     drawBgColor = hexToRgb565(bg);
@@ -717,7 +739,7 @@ static esp_err_t routeDrawClear(httpd_req_t* req) {
 }
 
 static esp_err_t routeDrawStroke(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char pen[16] = {0};
   char pts[512] = {0};
   if (!getQueryArg(req, "pen", pen, sizeof(pen)) ||
@@ -753,7 +775,7 @@ static esp_err_t routeDrawStroke(httpd_req_t* req) {
 }
 
 static esp_err_t routeBacklight(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char on[8] = {0};
   bool enable = getQueryArg(req, "on", on, sizeof(on)) && strcmp(on, "1") == 0;
   setBacklight(enable);
@@ -779,7 +801,7 @@ static esp_err_t routeBacklight(httpd_req_t* req) {
 // pointing at files that are gone for the duration of the upload; the player is
 // stopped here so it does not spend the transfer logging that.
 static esp_err_t routeThemeBegin(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   animPlayState("");         // stop the player while its files are missing
 
   unsigned freed = 0;
@@ -814,7 +836,7 @@ static esp_err_t routeThemeBegin(httpd_req_t* req) {
 // allows. A failure partway leaves a half-written theme, so the commit step is
 // separate and explicit.
 static esp_err_t routeThemePut(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char name[THEME_NAME_MAX] = {0};
   if (!getQueryArg(req, "name", name, sizeof(name)) || name[0] == 0) {
     sendJson(req, "{\"e\":\"name\"}");
@@ -869,7 +891,7 @@ static esp_err_t routeThemePut(httpd_req_t* req) {
 // player. Without the sweep the previous set's files would still be occupying
 // the partition — and there is no room for both.
 static esp_err_t routeThemeCommit(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
 
   char manifest[2048];
   size_t mLen = 0;
@@ -926,7 +948,7 @@ static esp_err_t routeThemeCommit(httpd_req_t* req) {
 // Switches which animation plays. Separate from /cmd, which only carries the
 // single-character verbs the original sketch defined.
 static esp_err_t routeThemeState(httpd_req_t* req) {
-  noteActivity();
+  noteHttp();
   char name[THEME_NAME_MAX] = {0};
   if (!getQueryArg(req, "name", name, sizeof(name))) {
     sendJson(req, "{\"e\":\"name\"}");
@@ -1067,7 +1089,6 @@ static void mountStorage() {
 
 #define SERIAL_RX_RING  4096     // USB-Serial-JTAG's ring: >64 required, and
                                  // one image band is 3840 bytes
-#define SERIAL_LINE_MAX 128
 #define IMG_BAND_ROWS      8
 
 static void serialReply(const char* s) {
@@ -1080,6 +1101,9 @@ static void serialReply(const char* s) {
 static void serialReceiveImage() {
   currentView = VIEW_DRAW;
   termMode = false;
+  // Owns the port for the whole transfer, so it never reaches the queue and has
+  // to stamp its own transport.
+  noteTransport(CMD_SRC_SERIAL);
   serialReply("ready");
 
   static uint16_t band[DISP_W * IMG_BAND_ROWS];
@@ -1266,26 +1290,25 @@ static void serialHandleLine(char* line) {
   serialReply("unknown cmd");
 }
 
-// Commands from both transports (USB serial and BLE) are queued and run by a
-// single worker task, so a slow screen animation can never stall the NimBLE
-// host task — and the two paths can never run concurrently.
+// Commands from every transport — USB serial, BLE, and the HTTP routes, which
+// stamp themselves instead of queueing — are run by a single worker task, so a
+// slow screen animation can never stall the NimBLE host task or the httpd task.
 static QueueHandle_t s_cmdQueue = nullptr;
 
-static_assert(SERIAL_LINE_MAX == BLE_CLI_LINE_MAX,
-              "queue item size must match what ble_cli posts");
-
 static void cmdWorkerTask(void* arg) {
-  char line[SERIAL_LINE_MAX];
+  cmd_item_t item;
   while (true) {
-    if (xQueueReceive(s_cmdQueue, line, portMAX_DELAY) == pdTRUE) {
-      ESP_LOGI(TAG, "cmd: %s", line);
-      serialHandleLine(line);
+    if (xQueueReceive(s_cmdQueue, &item, portMAX_DELAY) == pdTRUE) {
+      ESP_LOGI(TAG, "cmd[%s]: %s", cmdSrcName(item.src), item.line);
+      noteTransport(item.src);
+      serialHandleLine(item.line);
     }
   }
 }
 
 static void serialTask(void* arg) {
-  static char line[SERIAL_LINE_MAX];
+  static cmd_item_t item;
+  item.src = CMD_SRC_SERIAL;
   size_t len = 0;
   uint8_t ch;
 
@@ -1297,21 +1320,21 @@ static void serialTask(void* arg) {
     if (n <= 0) continue;
     if (ch == '\n' || ch == '\r') {
       if (len) {
-        line[len] = 0;
+        item.line[len] = 0;
         // "img" streams raw pixels off this port, so it must run here, where
         // we own it — not on the worker task.
-        if (strcmp(line, "img") == 0) serialReceiveImage();
-        else xQueueSend(s_cmdQueue, line, 0);
+        if (strcmp(item.line, "img") == 0) serialReceiveImage();
+        else xQueueSend(s_cmdQueue, &item, 0);
         len = 0;
       }
       continue;
     }
-    if (len < SERIAL_LINE_MAX - 1) line[len++] = (char)ch;
+    if (len < CMD_LINE_MAX - 1) item.line[len++] = (char)ch;
   }
 }
 
 static void serialInit() {
-  s_cmdQueue = xQueueCreate(8, SERIAL_LINE_MAX);
+  s_cmdQueue = xQueueCreate(8, sizeof(cmd_item_t));
   ESP_ERROR_CHECK(s_cmdQueue != nullptr ? ESP_OK : ESP_ERR_NO_MEM);
   xTaskCreate(cmdWorkerTask, "cmd_worker", 6144, nullptr, 5, nullptr);
 
