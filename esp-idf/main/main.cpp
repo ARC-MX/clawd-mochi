@@ -270,26 +270,13 @@ static uint16_t hexToRgb565(const char* hex) {
   return Display::color565((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
 }
 
-// Inverse of hexToRgb565(), so the web UI can load the current colours from the
-// device instead of keeping its own copy of the defaults — one source of truth,
-// and a colour set over serial/BLE shows up in the pickers too.
-static void rgb565ToHex(uint16_t c, char* out, size_t outLen) {
-  // Scale back to 8 bits by replicating the high bits into the low ones, which
-  // is what makes 0x1F -> 0xFF rather than 0xF8.
-  uint8_t r = (uint8_t)(((c >> 11) & 0x1F) * 255 / 31);
-  uint8_t g = (uint8_t)(((c >> 5) & 0x3F) * 255 / 63);
-  uint8_t b = (uint8_t)((c & 0x1F) * 255 / 31);
-  snprintf(out, outLen, "#%02x%02x%02x", r, g, b);
-}
-
 static void initColours() {
   C_ORANGE = Display::color565(218, 17, 0);
   C_DARKBG = Display::color565(10,  12,  16);
   C_MUTED  = Display::color565(90,  88,  86);
   C_GREEN  = Display::color565(80, 220, 130);
   // Pale mint. Not pure white: the crab is warm orange, and a white field reads
-  // as blown-out glare next to it. Change it here, from the web UI's colour
-  // picker, or with `bg#RRGGBB` over serial/BLE.
+  // as blown-out glare next to it. Change it with `bg#RRGGBB` over serial/BLE.
   animSurround = Display::color565(232, 242, 238);
   drawBgColor = C_ORANGE;
 }
@@ -760,24 +747,6 @@ static esp_err_t routeChar(httpd_req_t* req) {
   return ESP_OK;
 }
 
-static esp_err_t routeRedraw(httpd_req_t* req) {
-  noteActivity();
-  char bg[16] = {0};
-  if (getQueryArg(req, "bg", bg, sizeof(bg))) {
-    // Pet background only. This used to also set drawBgColor, which conflated
-    // the two: the canvas has its own colour, set through /draw/clear, and the
-    // web UI now exposes them as separate pickers.
-    animSurround = hexToRgb565(bg);
-    animSetBackground(animSurround);
-  }
-  switch (currentView) {
-    case VIEW_CODE: drawCodeView();   break;
-    case VIEW_DRAW: tft.fillScreen(drawBgColor); break;
-    default: break;   // the animation player owns the panel
-  }
-  sendJson(req, "{\"ok\":1}");
-  return ESP_OK;
-}
 
 static esp_err_t routeCanvas(httpd_req_t* req) {
   noteActivity();
@@ -795,12 +764,6 @@ static esp_err_t routeCanvas(httpd_req_t* req) {
 
 static esp_err_t routeDrawClear(httpd_req_t* req) {
   noteActivity();
-  char bg[16] = {0};
-  if (getQueryArg(req, "bg", bg, sizeof(bg))) {
-    drawBgColor = hexToRgb565(bg);
-  } else {
-    drawBgColor = hexToRgb565("#aa4818");
-  }
   currentView = VIEW_DRAW;
   termMode = false;
   tft.fillScreen(drawBgColor);
@@ -1093,8 +1056,6 @@ static esp_err_t routeThemeState(httpd_req_t* req) {
 }
 
 static esp_err_t routeState(httpd_req_t* req) {
-  char bg[8];
-  rgb565ToHex(animSurround, bg, sizeof(bg));
   // The state list rides along so the web UI can offer a picker without a
   // second round trip, and without duplicating the manifest's contents here.
   char states[192];
@@ -1105,12 +1066,12 @@ static esp_err_t routeState(httpd_req_t* req) {
   char j[512];
   snprintf(j, sizeof(j),
            "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,"
-           "\"bg\":\"%s\",\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\"}",
+           "\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\"}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
-           bg, states, settingsName(), settingsPass());
+           states, settingsName(), settingsPass());
   sendJson(req, j);
   return ESP_OK;
 }
@@ -1203,7 +1164,6 @@ static void startWebServer() {
   r.uri = "/";            r.handler = routeRoot;       httpd_register_uri_handler(server, &r);
   r.uri = "/cmd";         r.handler = routeCmd;        httpd_register_uri_handler(server, &r);
   r.uri = "/char";        r.handler = routeChar;       httpd_register_uri_handler(server, &r);
-  r.uri = "/redraw";      r.handler = routeRedraw;     httpd_register_uri_handler(server, &r);
   r.uri = "/canvas";      r.handler = routeCanvas;     httpd_register_uri_handler(server, &r);
   r.uri = "/draw/clear";  r.handler = routeDrawClear;  httpd_register_uri_handler(server, &r);
   r.uri = "/draw/stroke"; r.handler = routeDrawStroke; httpd_register_uri_handler(server, &r);

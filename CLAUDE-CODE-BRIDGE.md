@@ -44,7 +44,7 @@ hook 的输入是 **stdin 上的 JSON**，`clawd-hook.js` 实际读取的字段�
 | `GET /cmd?k=a` | 播放 logo 动画 |
 | `GET /cmd?k=q` | 退出终端模式，回到代码视图 |
 | `GET /char?c=<字符>` | 往终端打字（单字符） |
-| `GET /state` | `{view,busy,term,bl,bg,states,name,pass}` — `bg` 是当前宠物背景色，`states` 是当前主题提供的全部状态（空格分隔），`name`/`pass` 是生效中的设备名与热点密码 |
+| `GET /state` | `{view,busy,term,bl,states,name,pass}` — `states` 是当前主题提供的全部状态（空格分隔），`name`/`pass` 是生效中的设备名与热点密码 |
 | `GET /backlight?on=0\|1` | 背光开关 |
 | `GET /theme/state?name=<状态>` | 播放主题里的某个状态；`name=` 为空则停止播放 |
 | `POST /theme/begin` | **清空主题目录**，为上传腾空间（见下方"主题替换"） |
