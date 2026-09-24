@@ -200,8 +200,49 @@ that is a three-step replacement rather than a swap.
 
 ### The states this theme provides
 
-The pack holds twelve states and about **2.0 MB** in total — the partition is 2.44 MB, which is
-why exactly one pack fits:
+The pack holds twelve states and about **2.0 MB** — the partition is 2.44 MB, which is why
+exactly one pack fits. Every clip below is decoded frame by frame from the `.caf` the device
+plays (480×480, twice the panel), so it is the effect you actually get.
+
+**The first six are the ones Claude Code drives**:
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/states/idle.gif" width="200"><br><code>idle</code></td>
+    <td align="center"><img src="pics/states/thinking.gif" width="200"><br><code>thinking</code></td>
+    <td align="center"><img src="pics/states/working.gif" width="200"><br><code>working</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/states/done.gif" width="200"><br><code>done</code></td>
+    <td align="center"><img src="pics/states/error.gif" width="200"><br><code>error</code></td>
+    <td align="center"><img src="pics/states/sleep.gif" width="200"><br><code>sleep</code></td>
+  </tr>
+</table>
+
+| State | When it plays |
+| --- | --- |
+| `idle` | nothing is happening — after boot, or the web UI's Idle button |
+| `thinking` | a prompt was submitted (hook: `UserPromptSubmit`) |
+| `working` | a tool is running (hook: `PreToolUse`) |
+| `done` | a turn finished (hook: `Stop`) |
+| `sleep` | two minutes of quiet (the interval is adjustable, above) |
+| `error` | **nothing drives this yet** — play it by hand with `state error`, or from the web UI's Expression picker |
+
+**The last six ship as spare art** — point any state at one in `manifest.txt`
+(`idle=clawd-idle.caf` swaps the default resting animation, for instance):
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/states/spare-idle.gif" width="130"><br><code>spare-idle</code></td>
+    <td align="center"><img src="pics/states/spare-reading.gif" width="130"><br><code>spare-reading</code></td>
+    <td align="center"><img src="pics/states/juggling.gif" width="130"><br><code>juggling</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/states/notification.gif" width="130"><br><code>notification</code></td>
+    <td align="center"><img src="pics/states/sweeping.gif" width="130"><br><code>sweeping</code></td>
+    <td align="center"><img src="pics/states/carrying.gif" width="130"><br><code>carrying</code></td>
+  </tr>
+</table>
 
 | State | Animation | Frames | One loop | Size |
 | --- | --- | --- | --- | --- |
@@ -218,22 +259,9 @@ why exactly one pack fits:
 | `spare-idle` | `clawd-idle.caf` | 48 | 3.2 s | 132 KB |
 | `spare-reading` | `clawd-idle-reading.caf` | 60 | 4.0 s | 266 KB |
 
-**The first six are the ones Claude Code drives**:
-
-| State | When it plays |
-| --- | --- |
-| `idle` | nothing is happening — after boot, or the web UI's Idle button |
-| `thinking` | a prompt was submitted (hook: `UserPromptSubmit`) |
-| `working` | a tool is running (hook: `PreToolUse`) |
-| `done` | a turn finished (hook: `Stop`) |
-| `sleep` | two minutes of quiet (the interval is adjustable, above) |
-| `error` | **nothing drives this yet** — play it by hand with `state error`, or from the web UI's Expression picker |
-
-**The last six ship as spare art**: point any state at one in `manifest.txt` — `idle=clawd-idle.caf`
-swaps the default resting animation, for instance.
-
-Ask the device which states its mounted theme offers at any time: send `states` over serial or BLE,
-or look at the picker in the web UI's `// theme` section.
+Ask the device which states its mounted theme offers at any time: send `states` over serial or
+BLE, or look at the picker in the web UI's `// theme` section. Regenerate the clips above with
+`python3 tools/theme_gifs.py esp-idf/data/theme pics/states` after changing a theme.
 
 Build a pack from a sticker set with:
 

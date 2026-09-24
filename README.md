@@ -179,7 +179,46 @@ esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
 
 ### 设备上现有的状态
 
-这组主题一共 12 个状态，体积合计约 **2.0 MB** —— 分区是 2.44 MB，这就是"只装得下一组"的原因：
+这组主题一共 12 个状态，体积合计约 **2.0 MB** —— 分区是 2.44 MB，这就是"只装得下一组"的原因。下面每个动图都是**从 `.caf` 逐帧解码**渲染的（480×480，即面板的 2 倍），所以它显示的就是面板上实际的效果。
+
+**前六个由 Claude Code 驱动**：
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/states/idle.gif" width="200"><br><code>idle</code></td>
+    <td align="center"><img src="pics/states/thinking.gif" width="200"><br><code>thinking</code></td>
+    <td align="center"><img src="pics/states/working.gif" width="200"><br><code>working</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/states/done.gif" width="200"><br><code>done</code></td>
+    <td align="center"><img src="pics/states/error.gif" width="200"><br><code>error</code></td>
+    <td align="center"><img src="pics/states/sleep.gif" width="200"><br><code>sleep</code></td>
+  </tr>
+</table>
+
+| 状态 | 什么时候出现 |
+| --- | --- |
+| `idle` | 空闲 —— 开机之后，或点网页上的 Idle |
+| `thinking` | 提交了提示（hook：`UserPromptSubmit`） |
+| `working` | 工具正在跑（hook：`PreToolUse`） |
+| `done` | 一轮回答结束（hook：`Stop`） |
+| `sleep` | 静置两分钟自动打盹（间隔可调，见上文） |
+| `error` | **目前没有自动来源** —— 用 `state error` 或网页的 Expression 手动播放 |
+
+**后六个是主题自带的备用素材** —— 把 `manifest.txt` 里某个状态指过去即可（例如 `idle=clawd-idle.caf` 就换掉默认的空闲动画）：
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/states/spare-idle.gif" width="130"><br><code>spare-idle</code></td>
+    <td align="center"><img src="pics/states/spare-reading.gif" width="130"><br><code>spare-reading</code></td>
+    <td align="center"><img src="pics/states/juggling.gif" width="130"><br><code>juggling</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/states/notification.gif" width="130"><br><code>notification</code></td>
+    <td align="center"><img src="pics/states/sweeping.gif" width="130"><br><code>sweeping</code></td>
+    <td align="center"><img src="pics/states/carrying.gif" width="130"><br><code>carrying</code></td>
+  </tr>
+</table>
 
 | 状态 | 动画文件 | 帧数 | 单次循环 | 体积 |
 | --- | --- | --- | --- | --- |
@@ -196,20 +235,7 @@ esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
 | `spare-idle` | `clawd-idle.caf` | 48 | 3.2 s | 132 KB |
 | `spare-reading` | `clawd-idle-reading.caf` | 60 | 4.0 s | 266 KB |
 
-**前六个是 Claude Code 会驱动的**：
-
-| 状态 | 什么时候出现 |
-| --- | --- |
-| `idle` | 空闲 —— 开机之后，或点网页上的 Idle |
-| `thinking` | 提交了提示（hook：`UserPromptSubmit`） |
-| `working` | 工具正在跑（hook：`PreToolUse`） |
-| `done` | 一轮回答结束（hook：`Stop`） |
-| `sleep` | 静置两分钟自动打盹（间隔可调，见上文） |
-| `error` | **目前没有自动来源** —— 用 `state error` 或网页的 Expression 手动播放 |
-
-**后六个是主题自带的备用素材**：把 `manifest.txt` 里某个状态指过去即可，例如 `idle=clawd-idle.caf` 就把默认的空闲动画换掉。
-
-设备上随时可以列出当前主题提供了哪些状态：串口/BLE 发 `states`，或看网页 `// theme` 区那个下拉框。
+设备上随时可以列出当前主题提供了哪些状态：串口/BLE 发 `states`，或看网页 `// theme` 区那个下拉框。上面这些动图可以用 `python3 tools/theme_gifs.py esp-idf/data/theme pics/states` 重新生成（改了主题之后跑一次）。
 
 把一套贴图打包成主题包：
 
