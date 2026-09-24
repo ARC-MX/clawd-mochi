@@ -32,7 +32,7 @@ Instagram 支持项目：[![Instagram](https://img.shields.io/badge/Instagram-E4
 Clawd Mochi 放在桌面上，用一块小彩屏播放动画表情。连上它自带的热点，就能用手机或电脑的浏览器控制：
 
 - **主题动画** —— 宠物的表情是从文件系统里读出来播放的动画贴纸，换一套主题不必重新烧录固件
-  （`idle`、`thinking`、`working`、`done`、`error`、`sleep` 等等）
+  （`idle`、`thinking`、`working`、`done`、`error`、`sleep` 等 12 个状态，清单见「自定义」一节）
 - **Claude Code** —— 显示 "Claude Code" 界面，带一个可交互的小终端
 - **画布** —— 用手机在屏幕上实时画画
 
@@ -176,6 +176,40 @@ esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
 ```
 
 一个主题目录加上它的 manifest 就是一个**主题包**，设备上**只放得下一个** —— 2.44 MB 的 LittleFS 分区刚好够装一组约 2 MB 的包，没有余地。在网页的 `// theme` 区切换：它会逐个文件上传新包、最后提交。为什么是"三步替换"而不是直接换，见 [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)。
+
+### 设备上现有的状态
+
+这组主题一共 12 个状态，体积合计约 **2.0 MB** —— 分区是 2.44 MB，这就是"只装得下一组"的原因：
+
+| 状态 | 动画文件 | 帧数 | 单次循环 | 体积 |
+| --- | --- | --- | --- | --- |
+| `idle` | `clawd-headphones-groove.caf` | 48 | 3.2 s | 167 KB |
+| `thinking` | `clawd-thinking.caf` | 45 | 3.0 s | 139 KB |
+| `working` | `clawd-typing.caf` | 45 | 3.0 s | 281 KB |
+| `done` | `clawd-happy.caf` | 45 | 3.0 s | 94 KB |
+| `error` | `clawd-error.caf` | 45 | 3.0 s | 125 KB |
+| `sleep` | `clawd-sleeping.caf` | 45 | 3.0 s | 84 KB |
+| `juggling` | `clawd-juggling.caf` | 45 | 3.0 s | 153 KB |
+| `notification` | `clawd-notification.caf` | 77 | 5.6 s | 265 KB |
+| `sweeping` | `clawd-sweeping.caf` | 45 | 3.0 s | 151 KB |
+| `carrying` | `clawd-carrying.caf` | 45 | 3.0 s | 196 KB |
+| `spare-idle` | `clawd-idle.caf` | 48 | 3.2 s | 132 KB |
+| `spare-reading` | `clawd-idle-reading.caf` | 60 | 4.0 s | 266 KB |
+
+**前六个是 Claude Code 会驱动的**：
+
+| 状态 | 什么时候出现 |
+| --- | --- |
+| `idle` | 空闲 —— 开机之后，或点网页上的 Idle |
+| `thinking` | 提交了提示（hook：`UserPromptSubmit`） |
+| `working` | 工具正在跑（hook：`PreToolUse`） |
+| `done` | 一轮回答结束（hook：`Stop`） |
+| `sleep` | 静置两分钟自动打盹（间隔可调，见上文） |
+| `error` | **目前没有自动来源** —— 用 `state error` 或网页的 Expression 手动播放 |
+
+**后六个是主题自带的备用素材**：把 `manifest.txt` 里某个状态指过去即可，例如 `idle=clawd-idle.caf` 就把默认的空闲动画换掉。
+
+设备上随时可以列出当前主题提供了哪些状态：串口/BLE 发 `states`，或看网页 `// theme` 区那个下拉框。
 
 把一套贴图打包成主题包：
 

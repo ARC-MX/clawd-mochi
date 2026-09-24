@@ -34,7 +34,8 @@ Clawd Mochi sits on your desk and shows animated expressions on a small color di
 
 - **Themed animations** — the pet's expressions are animated stickers played from
   the filesystem, so a theme can be swapped without reflashing the firmware
-  (`idle`, `thinking`, `working`, `done`, `error`, `sleep`, and more)
+  (twelve states: `idle`, `thinking`, `working`, `done`, `error`, `sleep` and more —
+  the full list is under Customisation)
 - **Claude Code** — displays "Claude Code" with an interactive terminal
 - **Canvas** — draw anything on the display from your phone in real time
 
@@ -196,6 +197,43 @@ one — the 2.44 MB LittleFS partition has room for one pack of roughly 2 MB and
 nothing else. Switch packs from the web UI's `// theme` section, which posts the
 new pack file by file and then commits it; see CLAUDE-CODE-BRIDGE.md for why
 that is a three-step replacement rather than a swap.
+
+### The states this theme provides
+
+The pack holds twelve states and about **2.0 MB** in total — the partition is 2.44 MB, which is
+why exactly one pack fits:
+
+| State | Animation | Frames | One loop | Size |
+| --- | --- | --- | --- | --- |
+| `idle` | `clawd-headphones-groove.caf` | 48 | 3.2 s | 167 KB |
+| `thinking` | `clawd-thinking.caf` | 45 | 3.0 s | 139 KB |
+| `working` | `clawd-typing.caf` | 45 | 3.0 s | 281 KB |
+| `done` | `clawd-happy.caf` | 45 | 3.0 s | 94 KB |
+| `error` | `clawd-error.caf` | 45 | 3.0 s | 125 KB |
+| `sleep` | `clawd-sleeping.caf` | 45 | 3.0 s | 84 KB |
+| `juggling` | `clawd-juggling.caf` | 45 | 3.0 s | 153 KB |
+| `notification` | `clawd-notification.caf` | 77 | 5.6 s | 265 KB |
+| `sweeping` | `clawd-sweeping.caf` | 45 | 3.0 s | 151 KB |
+| `carrying` | `clawd-carrying.caf` | 45 | 3.0 s | 196 KB |
+| `spare-idle` | `clawd-idle.caf` | 48 | 3.2 s | 132 KB |
+| `spare-reading` | `clawd-idle-reading.caf` | 60 | 4.0 s | 266 KB |
+
+**The first six are the ones Claude Code drives**:
+
+| State | When it plays |
+| --- | --- |
+| `idle` | nothing is happening — after boot, or the web UI's Idle button |
+| `thinking` | a prompt was submitted (hook: `UserPromptSubmit`) |
+| `working` | a tool is running (hook: `PreToolUse`) |
+| `done` | a turn finished (hook: `Stop`) |
+| `sleep` | two minutes of quiet (the interval is adjustable, above) |
+| `error` | **nothing drives this yet** — play it by hand with `state error`, or from the web UI's Expression picker |
+
+**The last six ship as spare art**: point any state at one in `manifest.txt` — `idle=clawd-idle.caf`
+swaps the default resting animation, for instance.
+
+Ask the device which states its mounted theme offers at any time: send `states` over serial or BLE,
+or look at the picker in the web UI's `// theme` section.
 
 Build a pack from a sticker set with:
 
