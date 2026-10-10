@@ -116,6 +116,10 @@ paths; **use forward slashes** so the JSON needs no escaping):
       { "hooks": [ { "type": "command", "async": true, "timeout": 30,
         "command": "\"C:/Python311/python.exe\" \"C:/path/to/clawd-mochi/tools/mochi_hook.py\" PreToolUse" } ] }
     ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "async": true, "timeout": 30,
+        "command": "\"C:/Python311/python.exe\" \"C:/path/to/clawd-mochi/tools/mochi_hook.py\" SessionStart" } ] }
+    ],
     "Stop": [
       { "hooks": [ { "type": "command", "async": true, "timeout": 30,
         "command": "\"C:/Python311/python.exe\" \"C:/path/to/clawd-mochi/tools/mochi_hook.py\" Stop" } ] }
@@ -130,6 +134,11 @@ Claude Code down.
 
 With the cable in, serial is much the faster path; unplug the cable to have it follow you
 wirelessly over Bluetooth.
+
+**Do not leave `SessionStart` out**: it fires the first time Claude Code starts after the machine
+boots, and it is the only way the pet learns that Claude Code is back. The docstring of
+`tools/mochi_hook.py` lists *every* event it supports (a multi-session setup uses `SessionEnd` too)
+— that list is the authority.
 
 ### 3. Check it
 
@@ -183,6 +192,7 @@ report each step as you finish it; if you are unsure, ask me instead of guessing
 | The browser cannot open `192.168.4.1` | Make sure you joined **the device's** hotspot, not your home WiFi; the address is `192.168.4.1`, with no port suffix |
 | `mochi.py` cannot find the port | Close anything else holding it (a serial terminal, the Arduino IDE's serial monitor), then run `python tools\mochi.py ports`. It guesses from the port's description and can be fooled (a Bluetooth virtual port, say). There is no `--port` argument yet — edit the first line of `find_port()` in `tools\mochi.py` |
 | The canvas draws nothing | The page now says why (`stroke not drawn: …`). Note too that **Claude Code takes the screen back the moment it has anything to say** — that is deliberate, so the pet can always show what the agent is doing |
+| **The pet stops following Claude Code** | Look in `%USERPROFILE%\.clawd\mochi-hook.log` first: lines there mean delivery really failed (the timestamps date it); an empty log means the hook sent fine and the device is the other end of the problem. Note too that **the device loses its state on a restart** while the hook's ledger still says it was delivered — if the pet is stuck on its boot screen, opening a new Claude Code session (which fires `SessionStart`) pulls it back |
 | Bluetooth cannot find the device | Is some other machine already connected to it? It accepts only a few centrals at once. Confirm the device is alive over serial first (`python tools\mochi.py bright`) |
 
 ---

@@ -104,6 +104,10 @@ pip install pyserial bleak
       { "hooks": [ { "type": "command", "async": true, "timeout": 30,
         "command": "\"C:/Python311/python.exe\" \"C:/path/to/clawd-mochi/tools/mochi_hook.py\" PreToolUse" } ] }
     ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "async": true, "timeout": 30,
+        "command": "\"C:/Python311/python.exe\" \"C:/path/to/clawd-mochi/tools/mochi_hook.py\" SessionStart" } ] }
+    ],
     "Stop": [
       { "hooks": [ { "type": "command", "async": true, "timeout": 30,
         "command": "\"C:/Python311/python.exe\" \"C:/path/to/clawd-mochi/tools/mochi_hook.py\" Stop" } ] }
@@ -115,6 +119,8 @@ pip install pyserial bleak
 `mochi_hook.py` 会**先走串口（快，约 0.1 秒），串口不可用再走蓝牙**（约 4 秒）；两条都失败也**不会**影响 Claude Code（脚本恒返回 0，静默失败）。
 
 设备插着 USB 时走串口最快；想让它无线跟着你，拔掉线即可（蓝牙）。
+
+**`SessionStart` 那条别省**：它在你开机后第一次打开 Claude Code 时触发，是宠物"知道 Claude Code 回来了"的唯一途径。`tools/mochi_hook.py` 的 docstring 里列了它支持的**全部**事件（多会话时还会用到 `SessionEnd` 等）—— 以那份清单为准。
 
 ### 3. 验证
 
@@ -162,6 +168,7 @@ python tools\mochi_ble.py state working
 | 浏览器打不开 `192.168.4.1` | 确认连的是**设备的热点**（不是家里 WiFi）；地址是 `192.168.4.1` 而不是 `192.168.4.1:80` 之类 |
 | `mochi.py` 找不到串口 | 先关掉任何占用串口的程序（串口助手、Arduino 的串口监视器等），再跑 `python tools\mochi.py ports` 看列表。它按描述关键字自动认端口；若认错（比如选中了蓝牙虚拟串口），目前没有 `--port` 参数，可以临时改 `tools\mochi.py` 里 `find_port()` 的第一行 |
 | 网页画布画了没反应 | 会弹 `stroke not drawn: …` 的提示说明原因；另外注意：**Claude Code 一发命令，宠物就会从你手里接管屏幕**（这是刻意的设计，让宠物优先反映 Claude Code 的状态） |
+| **宠物不跟着 Claude Code 动** | 先看 `%USERPROFILE%\.clawd\mochi-hook.log`：有行说明投递真的失败过（时间戳对得上就能定位）；空的说明 hook 发出去了，问题在设备侧。另外：**设备重启后它的状态会丢**，而 hook 的账本还记着"已送达" —— 若宠物停在开机画面不动，打开一次新的 Claude Code 会话（触发 `SessionStart`）即可拉回 |
 | 蓝牙搜不到设备 | 设备是不是已经被另一台电脑/手机的蓝牙连走了？它同时只接受有限个连接；也可以先用串口确认设备活着（`python tools\mochi.py bright`） |
 
 ---
