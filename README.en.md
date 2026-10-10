@@ -126,7 +126,7 @@ The pet also naps: with nothing driving it for two minutes it switches to the
 theme's `sleep` state, and wakes on the next state request. Any command restarts
 the timer, but only a state change rouses it — a status line should not. Change
 the interval with `sleepafter <seconds>` over serial or BLE (0 disables); it is
-not persisted, so a reboot returns to the 120 s default.
+stored in NVS, so it survives a reboot (the default is 120 s).
 
 ---
 
