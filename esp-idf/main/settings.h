@@ -52,6 +52,11 @@ bool settingsGetBrightness(uint8_t* pct);
 // Stores it, skipping a write when the value is already there.
 bool settingsSetBrightness(uint8_t pct);
 
+// How long the pet waits with nothing driving it before it naps, in seconds
+// (0 disables). Stored like the rest, so a reboot does not undo it.
+bool settingsGetSleepAfter(uint16_t* sec);
+bool settingsSetSleepAfter(uint16_t sec);
+
 // True when the given name/password would be accepted.
 bool settingsNameValid(const char* name);
 bool settingsPassValid(const char* pass);

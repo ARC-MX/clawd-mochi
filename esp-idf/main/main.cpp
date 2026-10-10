@@ -1533,6 +1533,7 @@ static void serialHandleLine(char* line) {
     if (v > SLEEP_AFTER_MAX) v = SLEEP_AFTER_MAX;
     sleepAfterSec = (uint16_t)v;
     noteActivity();                    // start the new interval from now
+    settingsSetSleepAfter(sleepAfterSec);   // survives a reboot, unlike before
     serialReply("ok");
     return;
   }
@@ -1775,6 +1776,9 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(nvs);
   // Before the radios: the AP's SSID and the BLE name both come from here.
   settingsLoad();
+  // 0 is a real setting ("never nap"), so this cannot lean on a default.
+  uint16_t storedSleep = 0;
+  if (settingsGetSleepAfter(&storedSleep)) sleepAfterSec = storedSleep;
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
 
