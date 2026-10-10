@@ -12,6 +12,12 @@
 #   error         something failed
 #   sleep         idle for a long time
 #
+# The nap only starts from a resting state: while the panel is on `thinking` or
+# `working` it does not fire at all, because a long tool call emits no hooks for
+# minutes and dozing off in the middle of one is exactly what that rule is for.
+# Those two names are spelled out in main.cpp (petIsWorking()) — renaming them
+# here would quietly turn the rule off.
+#
 # The rest are spare art shipped with the theme; point any state at them by
 # editing this file.
 

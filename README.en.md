@@ -128,6 +128,13 @@ the timer, but only a state change rouses it — a status line should not. Chang
 the interval with `sleepafter <seconds>` over serial or BLE (0 disables); it is
 stored in NVS, so it survives a reboot (the default is 120 s).
 
+**It never naps in the middle of the work, though**: while the panel is showing
+`working` or `thinking` the timer does not fire. A long tool call produces no
+events at all, and "quiet for a while" cannot tell a build still running from a
+session that died; this way the pet errs on the side of staying awake. The cost
+is that a session killed outright — no `Stop`, no `SessionEnd` — leaves it awake
+until the next state request.
+
 ---
 
 ## 3D case
@@ -224,9 +231,15 @@ plays (480×480, twice the panel), so it is the effect you actually get.
 | `idle` | nothing is happening — after boot, or the web UI's Idle button |
 | `thinking` | a prompt was submitted (hook: `UserPromptSubmit`) |
 | `working` | a tool is running (hook: `PreToolUse`) |
-| `done` | a turn finished (hook: `Stop`) |
-| `sleep` | two minutes of quiet (the interval is adjustable, above) |
+| `done` | a turn finished (hook: `Stop`) — only when the *last* working session stops |
+| `sleep` | two minutes of quiet (the interval is adjustable, above); never while the panel shows `working`/`thinking` |
 | `error` | **nothing drives this yet** — play it by hand with `state error`, or from the web UI's Expression picker |
+
+With several Claude Code sessions running at once the panel shows the busiest
+one (`working` > `thinking` > `idle`): one session finishing neither takes the
+screen from the others nor puts the pet to sleep early. Sessions are told apart
+by the `session_id` in the hook's stdin — see
+[`CLAUDE-CODE-BRIDGE.md`](./CLAUDE-CODE-BRIDGE.md) §方案 E.
 
 **The last six ship as spare art** — point any state at one in `manifest.txt`
 (`idle=clawd-idle.caf` swaps the default resting animation, for instance):

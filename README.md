@@ -113,6 +113,8 @@ Clawd Mochi 放在桌面上，用一块小彩屏播放动画表情。连上它�
 
 宠物还会打盹：连续两分钟没有任何东西驱动它，就切到主题的 `sleep` 状态，下一次状态请求时醒来。任何命令都会重置这个计时，但只有**状态切换**能把它唤醒 —— 显示一行状态文字不该吵醒它。可以用串口或 BLE 发 `sleepafter <秒>` 改这个间隔（0 表示关闭）；它存在 NVS 里，**重启后保留**（默认 120 秒）。
 
+**但它不会在干活的时候睡过去**：只要屏幕上还是 `working` 或 `thinking`，打盹就不触发。一个跑得久的工具调用期间不会有任何事件，光看"多久没消息"分不出"还在跑"和"卡死了"；这里选的是不动 —— 宠物睡着比假装还在忙更糟。代价是硬杀掉的会话（没有 `Stop`、也没有 `SessionEnd`）会让它一直醒着，直到下一个状态请求。
+
 ---
 
 ## 3D 外壳
@@ -201,9 +203,11 @@ esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
 | `idle` | 空闲 —— 开机之后，或点网页上的 Idle |
 | `thinking` | 提交了提示（hook：`UserPromptSubmit`） |
 | `working` | 工具正在跑（hook：`PreToolUse`） |
-| `done` | 一轮回答结束（hook：`Stop`） |
-| `sleep` | 静置两分钟自动打盹（间隔可调，见上文） |
+| `done` | 一轮回答结束（hook：`Stop`）—— 只在**最后一个**干活的会话停下来时播 |
+| `sleep` | 静置两分钟自动打盹（间隔可调，见上文）；屏幕上还是 `working`/`thinking` 时不打盹 |
 | `error` | **目前没有自动来源** —— 用 `state error` 或网页的 Expression 手动播放 |
+
+有几个 Claude Code 会话同时在跑的时候，屏幕显示的是**最忙的那个**（`working` > `thinking` > `idle`）：某个会话结束不会把屏幕从别的会话手里夺走，也不会让宠物提前睡过去。会话靠 hook 输入里的 `session_id` 区分，细节见 [`CLAUDE-CODE-BRIDGE.md`](./CLAUDE-CODE-BRIDGE.md) §方案 E。
 
 **后六个是主题自带的备用素材** —— 把 `manifest.txt` 里某个状态指过去即可（例如 `idle=clawd-idle.caf` 就换掉默认的空闲动画）：
 

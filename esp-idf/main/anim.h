@@ -12,6 +12,15 @@ extern "C" {
 // theme manifest. Pass an empty string to stop and go idle.
 void animPlayState(const char* state);
 
+// Longest state name the player accepts — a buffer for animCurrentState() has
+// to be at least this big.
+#define ANIM_STATE_MAX 24
+
+// Copies the state the player is showing into `out` (empty when it is stopped,
+// e.g. while an image or the canvas owns the panel). Lets a caller ask whether
+// the pet is mid-work without keeping its own copy of the player's bookkeeping.
+void animCurrentState(char* out, unsigned outLen);
+
 // Colour the screen is cleared to when the state changes (RGB565). This is also
 // what shows through the artwork: palette index 0 is treated as transparent, so
 // the background is a runtime setting rather than something baked into the .caf.

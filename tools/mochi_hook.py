@@ -24,14 +24,23 @@ Telling the sessions apart needs the hook's stdin payload — `session_id` — a
 this script used to ignore stdin entirely, which is why every session looked
 like the same one. `SessionStart`/`SessionEnd` register and retire a session; a
 session that goes quiet for SESSION_TTL_S without a `SessionEnd` (a killed
-terminal) is dropped.
+terminal) is dropped. A run with nothing on stdin is not an agent but somebody
+testing by hand (the commands below): it files under `default` for a minute and
+then ages out like anything else.
 
 A long tool call fires no hooks for minutes at a stretch, and the device's own
-nap timer (`sleepafter`, 120 s by default) used to run out in the middle of one
-— the pet dozed off while an agent was still working. While any session is busy
-the hook pushes that timer out to SLEEP_BUSY_S and puts it back once the fleet
-is idle; the timer belongs to the hook after that. Set SLEEP_BUSY_S = 0 to
-leave the device's own value alone.
+nap timer (`sleepafter`) used to expire in the middle of one — the pet dozed off
+while an agent was still working. That is the firmware's business now: it does
+not nap out of `working`/`thinking` at all (petIsWorking() in main.cpp), so this
+script never touches `sleepafter`. It is a setting the user owns — and now a
+stored one, so writing it here would mean a flash write per turn.
+
+Only *changes* reach the device — PreToolUse fires on every tool call — but a
+work state is re-asserted every RESYNC_S. A device that rebooted (or that the
+web UI was poked on) has no way to say so, and would otherwise sit on the wrong
+animation until the next change, which can be minutes away. When the last
+session goes away the panel is brought to rest instead, for the same reason in
+reverse: a `working` left standing never naps out.
 
 The device's serial reader is up about five seconds after it is powered, so the
 first event after a reboot can arrive while it is still starting. That send is
@@ -71,15 +80,24 @@ BOOT_RETRY_S = 6
 # A send nobody answered (device unplugged) is retried, but not on every single
 # tool call.
 RETRY_MS = 2000
+# A device reboot is invisible from here: it drops whatever it was showing, and
+# the ledger below has no way to know it happened. While an agent is *working*,
+# re-assert the state this often so the panel finds its way back on its own.
+#
+# Work states only. Re-asserting `idle`/`done` would restart their animation and
+# — worse — keep restarting the device's nap timer, so the pet would never sleep.
+RESYNC_S = 180
+# A run with no stdin has no session_id: it is somebody testing the hook by hand
+# (the commands in CLAUDE-CODE-BRIDGE.md), not an agent. It files under this key
+# and gets a short life, so a one-line test does not sit on the panel for half an
+# hour — and it has to be a state the panel can act on either way.
+MANUAL_ID = "default"
+MANUAL_TTL_S = 60
 # A session this quiet is assumed gone. `SessionEnd` covers a clean exit; this
 # covers a killed terminal, a crashed host, a session that never said goodbye.
 # Long on purpose — one Bash call can run for minutes with no hook in between,
 # and dropping a *working* session is the bug this file exists to fix.
 SESSION_TTL_S = 1800
-# Device nap timer, in seconds (see the module docstring). SLEEP_IDLE_S is the
-# firmware's own default; SLEEP_BUSY_S = 0 leaves the timer unmanaged.
-SLEEP_IDLE_S = 120
-SLEEP_BUSY_S = 1800
 
 # Set on the detached retry, so it logs a failure instead of spawning another.
 RETRY_ENV = "MOCHI_HOOK_RETRYING"
@@ -177,7 +195,10 @@ def save_blob(blob):
 
 
 def session_id():
-    """Which Claude Code session this event belongs to, from the stdin payload."""
+    """Which Claude Code session this event belongs to, from the stdin payload.
+
+    Returns None for a run with nothing on stdin — a manual test, not an agent.
+    """
     raw = ""
     if not sys.stdin.isatty():      # a manual run has no payload and no pipe
         try:
@@ -193,9 +214,19 @@ def session_id():
             sid = payload.get("session_id")
             if isinstance(sid, str) and sid:
                 return sid
-    # Nothing to tell the sessions apart: every event is one session, which is
-    # exactly the behaviour this script had before it looked at stdin.
-    return "default"
+    return None
+
+
+def session_entry(state, now, sid):
+    """A fresh registry entry for `sid`, grown old the way that sid deserves."""
+    entry = {"state": state, "ts": now}
+    if sid is None:
+        entry["ttl"] = MANUAL_TTL_S
+    return entry
+
+
+def entry_is_live(entry, now):
+    return now - entry.get("ts", 0) <= entry.get("ttl", SESSION_TTL_S)
 
 
 def aggregate(sessions):
@@ -206,35 +237,32 @@ def aggregate(sessions):
                key=lambda s: PRIORITY.get(s.get("state"), 0)).get("state", "idle")
 
 
-def stale(rec, want, now, again=False):
+def stale(rec, want, now, again=False, resync=False):
     """True if `want` is not what the device was last told, or was not heard.
 
     `again` lets an identical value be sent a second time once it is clear of
     the debounce window — used for `done`, which is an event rather than a
-    state: a later turn finishing is a new reason to celebrate.
+    state: a later turn finishing is a new reason to celebrate. `resync` re-sends
+    an identical *work* state on a timer instead, because the device can forget
+    what it was showing and nothing here would ever notice.
     """
     if rec.get("value") != want:
         return True
     if rec.get("ok"):
-        return again and now - rec.get("ts", 0) >= DEBOUNCE_MS / 1000.0
+        if again and now - rec.get("ts", 0) >= DEBOUNCE_MS / 1000.0:
+            return True
+        return resync and now - rec.get("ts", 0) >= RESYNC_S
     return now - rec.get("ts", 0) >= RETRY_MS / 1000.0
 
 
-def send_all(cmds):
-    """Run every command on the first transport that takes them all.
-
-    Serial first, then BLE — a half-delivered pair (the nap timer over USB, the
-    state over BLE) is worse than a retry, so one transport has to take both.
-    """
+def send_state(state):
+    """Push one state to the device: serial first, then BLE. True if it landed."""
     for cli in (SERIAL, BLE):
         try:
-            for cmd in cmds:
-                r = subprocess.run(cli + list(cmd), timeout=12,
-                                   stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL)
-                if r.returncode != 0:
-                    break
-            else:
+            r = subprocess.run(cli + ["state", state], timeout=12,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+            if r.returncode == 0:
                 return True
         except Exception:
             continue
@@ -256,14 +284,13 @@ def retry_later():
         pass
 
 
-def note_failure(cmds):
-    """Record that something could not be delivered. Never raises."""
+def note_failure(state):
+    """Record that a state could not be delivered. Never raises."""
     try:
         os.makedirs(os.path.dirname(FAIL_LOG), exist_ok=True)
         with open(FAIL_LOG, "a") as fh:
             fh.write("%s  could not deliver %s (serial and BLE both failed)\n"
-                     % (time.strftime("%Y-%m-%d %H:%M:%S"),
-                        " + ".join(" ".join(c) for c in cmds)))
+                     % (time.strftime("%Y-%m-%d %H:%M:%S"), state))
     except OSError:
         pass
 
@@ -276,23 +303,24 @@ def push(ev=None, sid=None):
     have moved on — so it only re-reads the fleet and rechecks the panel.
     """
     now = time.time()
+    key = sid or MANUAL_ID
     if ev is not None:
         with FileLock(LOCK):
             blob = load_blob()
             sessions = blob.get("sessions") or {}
             if ev == "SessionEnd":
-                sessions.pop(sid, None)
+                sessions.pop(key, None)
             elif ev == "SessionStart":
                 # `startup` is a new session, but `resume` and `compact` land
                 # here mid-turn as well: an entry that exists keeps its state,
                 # it is only marked as heard from.
-                entry = sessions.get(sid)
+                entry = sessions.get(key)
                 if entry is None:
-                    sessions[sid] = {"state": EVENT_STATE[ev], "ts": now}
+                    sessions[key] = session_entry(EVENT_STATE[ev], now, sid)
                 else:
                     entry["ts"] = now
             else:
-                sessions[sid] = {"state": EVENT_STATE[ev], "ts": now}
+                sessions[key] = session_entry(EVENT_STATE[ev], now, sid)
             blob["sessions"] = sessions
             save_blob(blob)
 
@@ -300,51 +328,54 @@ def push(ev=None, sid=None):
         blob = load_blob()
         sessions = blob.get("sessions") or {}
         sent = blob.get("sent") or {}
-        nap = blob.get("nap") or {}
 
         # Prune the sessions that went quiet — a killed terminal never sends
         # SessionEnd and would otherwise pin the panel on its last state.
-        sessions = {k: v for k, v in sessions.items()
-                    if now - v.get("ts", 0) <= SESSION_TTL_S}
+        sessions = {k: v for k, v in sessions.items() if entry_is_live(v, now)}
         blob["sessions"] = sessions
 
-        busy = aggregate(sessions)
-        # With no session at all there is nothing to say: the last turn's `done`
-        # should be allowed to finish playing, and the device naps on its own.
-        celebrate = busy == "idle" and ev == "Stop"
-        panel = None if busy is None else ("done" if celebrate else busy)
+        fleet = aggregate(sessions)
+        celebrate = fleet == "idle" and ev == "Stop"
+        if fleet is None:
+            # Nobody left to speak for. A `done` that just started playing should
+            # be left to finish, but a *work* state must not be left standing: the
+            # firmware does not nap out of one (it cannot tell a live tool call
+            # from a dead session), so an orphaned `working` would sit there until
+            # someone poked the device by hand.
+            panel = None if sent.get("value") in (None, "idle", "done") else "idle"
+        else:
+            panel = "done" if celebrate else fleet
 
-        cmds = []
-        if SLEEP_BUSY_S > 0:
-            want_nap = SLEEP_IDLE_S if busy in (None, "idle") else SLEEP_BUSY_S
-            if stale(nap, want_nap, now):
-                blob["nap"] = {"value": want_nap, "ts": now, "ok": False}
-                cmds.append(("raw", "sleepafter", str(want_nap)))
-        if panel is not None and stale(sent, panel, now, again=celebrate):
-            blob["sent"] = {"value": panel, "ts": now, "ok": False}
-            cmds.append(("state", panel))
+        # While someone is working the panel is also re-asserted on a timer: a
+        # rebooted or poked device is otherwise stuck showing the wrong thing
+        # until the next state *change*, which can be minutes away.
+        resync = panel in ("working", "thinking")
+        if panel is None or not stale(sent, panel, now, again=celebrate,
+                                      resync=resync):
+            # Already showing it: PreToolUse fires on every single tool call, and
+            # the device is told once per *change*, not once per event.
+            save_blob(blob)
+            return
+        blob["sent"] = {"value": panel, "ts": now, "ok": False}
 
         # The intent is on disk before the lock is released, so a second hook
         # firing at the same moment sees it and does not repeat the send.
         save_blob(blob)
-        if not cmds:
-            return
 
     # Off the lock: a device that is unplugged costs 24 s of timeouts here, and
     # holding the lock for that would stall every other session's hooks.
-    ok = send_all(cmds)
+    ok = send_state(panel)
     with FileLock(LOCK):
         blob = load_blob()
-        for key in ("sent", "nap"):
-            rec = blob.get(key)
-            if isinstance(rec, dict) and not rec.get("ok"):
-                rec["ok"] = ok
-                rec["ts"] = time.time()
+        rec = blob.get("sent")
+        if isinstance(rec, dict) and not rec.get("ok"):
+            rec["ok"] = ok
+            rec["ts"] = time.time()
         save_blob(blob)
 
     if not ok:
         if os.environ.get(RETRY_ENV):
-            note_failure(cmds)          # the retry itself failed: that is news
+            note_failure(panel)         # the retry itself failed: that is news
         else:
             retry_later()
 

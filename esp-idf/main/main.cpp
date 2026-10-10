@@ -150,6 +150,24 @@ static bool     autoAsleep    = false;  // we napped it, the host did not ask
 // Called by every command path. Cheap enough to call unconditionally.
 static void noteActivity() { lastActivity = xTaskGetTickCount(); }
 
+// Is an agent working right now, as far as the panel knows? The two states the
+// Claude Code hooks use to say so hold the pet awake through the nap below.
+//
+// The nap exists to end a *stale* state — a session killed mid-tool would
+// otherwise leave the pet locked on `working` forever — but a live tool call
+// looks exactly the same from here: one Bash command can run for minutes with
+// no hook in between, and the pet used to doze off in the middle of a build.
+// Work wins the tie, because a session that really is gone usually says so
+// (Stop, then SessionEnd); only a hard kill leaves it awake until the next
+// request, and any command at all can still put it to sleep by hand.
+//
+// The names are the manifest's, not the player's — see data/theme/manifest.txt.
+static bool petIsWorking() {
+  char cur[ANIM_STATE_MAX];
+  animCurrentState(cur, sizeof(cur));
+  return strcmp(cur, "working") == 0 || strcmp(cur, "thinking") == 0;
+}
+
 // The one way to change state: cancels any auto-sleep and restarts the timer,
 // then hands off to the player. Explicitly asking for a state is itself
 // activity, so callers need not call noteActivity() as well.
@@ -1890,8 +1908,10 @@ extern "C" void app_main() {
     }
 #endif
     // Nothing has driven the pet for a while: no agent is running, or it is
-    // sitting on a prompt. Nap until something asks for a state again.
+    // sitting on a prompt. Nap until something asks for a state again. Not
+    // while an agent is working, though — see petIsWorking().
     if (!autoAsleep && currentView == VIEW_ANIM && sleepAfterSec > 0 &&
+        !petIsWorking() &&
         (xTaskGetTickCount() - lastActivity) >=
             pdMS_TO_TICKS((uint32_t)sleepAfterSec * 1000)) {
       autoAsleep = true;

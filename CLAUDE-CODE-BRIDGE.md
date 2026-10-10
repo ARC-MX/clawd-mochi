@@ -1,6 +1,6 @@
 # Clawd Mochi ↔ Claude Code 联动方案
 
-> 状态：**方案 D（BLE）与 E（USB 串口）已实现并接入 Claude Code hooks**（`tools/mochi_hook.py` 已注册进 `~/.claude/settings.json` 的 UserPromptSubmit / PreToolUse / Stop）；方案 A（WiFi STA）仍为设计稿
+> 状态：**方案 D（BLE）与 E（USB 串口）已实现并接入 Claude Code hooks**（`tools/mochi_hook.py` 已注册进 `~/.claude/settings.json` 的 SessionStart / UserPromptSubmit / PreToolUse / Stop / SessionEnd）；方案 A（WiFi STA）仍为设计稿
 > 目标：让 ESP32 上的实体设备实时反映 Claude Code 的状态（空闲 / 思考中 / 正在用工具 / 需要授权）
 >
 > 设备端在动画界面右上角有一个 16×16 的**链路图标**：哪条链路（USB / BLE / WiFi）连着就亮哪个，**最近变化的那条**占住这个角 5 秒；颜色区分当前状态（强调色 = 此刻连着，灰色 = 刚刚断开）。两条同时变化时按 USB > BLE > WiFi 取舍，所以插着线时常态是 USB 图标，而每次 hook 的 BLE 连接会在角上留 5 秒灰色的蓝牙符文。
@@ -207,23 +207,32 @@ python3 tools/mochi.py img photo.jpg
 
 **Claude Code hooks（✅ 已安装）**：宿主侧脚本 `tools/mochi_hook.py` 已注册进 `~/.claude/settings.json`，映射：
 
-| 事件 | 状态 |
+| 事件 | 该会话进入的状态 |
 |---|---|
-| `UserPromptSubmit` | `state thinking` |
-| `PreToolUse` | `state working` |
-| `Stop` | `state done` |
+| `SessionStart` | `idle`（登记会话；开机后的第一个事件也是它，用来把设备叫醒） |
+| `UserPromptSubmit` | `thinking` |
+| `PreToolUse` | `working` |
+| `Stop` | `idle`（这一轮结束，会话还开着） |
+| `SessionEnd` | 注销该会话 |
 
-`mochi_hook.py` 做了两件事：
+**屏幕只有一个，会话可以有很多。** 所以状态是**按会话**记的，发给设备的永远是**聚合结果**：所有活着的会话里最忙的那个（`working` > `thinking` > `idle`）。`done` 是一个**事件**而不是状态，只有在**最后一个**干活的会话停下时才播一次 —— 一个会话结束不会把屏幕从别人的手里抢走，也不会让宠物提前睡过去。会话靠 hook stdin 里的 `session_id` 区分（脚本早先完全不读 stdin，这就是"只显示一个会话"的根源）；`SessionEnd` 负责注销，硬杀掉的终端则由 30 分钟没消息兜底剔除。
 
-1. **去抖**：同一状态 300ms 内只发一次（`PreToolUse` 密集触发时不刷屏），状态缓存写在 `$XDG_RUNTIME_DIR/mochi-hook-cache.json`。
-2. **传输回退**：先走 USB 串口（`mochi.py state <名>`，快），串口不可用时回退 BLE（`mochi_ble.py state <名>`）。始终 `async`、静默失败、退出码 0——设备离线时 CC 完全无感。
+`mochi_hook.py` 做四件事：
+
+1. **聚合**：见上；读写 `$XDG_RUNTIME_DIR/mochi-hook-state.json`（会话表 + "上次告诉设备的是什么"），跨进程用锁文件串行化，因为同一条 hook 可能被多个会话同时触发。手工跑一次（stdin 空的那些调试命令）不算会话，记成一条**一分钟**的临时项 —— 否则一次测试就能把画面占住半小时。
+2. **只报变化**：设备被告知的是**变化**，不是事件 —— `PreToolUse` 一次会话能触发上百次，聚合没变就不发。送不出去（设备拔了）的记录留着，下个事件重试。另外，屏幕上只要是 `working`/`thinking`，就每 3 分钟重申一次：设备重启过（或被人从网页点走了）它没法告诉你，否则要等到下一次状态**变化**才回得来，而那可能是几分钟以后。`idle`/`done` 不重申 —— 那会不断重置设备的打盹计时，宠物就永远睡不着了。
+3. **传输回退**：先走 USB 串口（`mochi.py state <名>`，快），串口不可用时回退 BLE（`mochi_ble.py state <名>`）。始终 `async`、静默失败、退出码 0——设备离线时 CC 完全无感。
+4. **开机重试**：设备的串口读取在通电约 5 秒后才起来，开机后第一个事件可能撞在它还在启动的时候。这种失败会在后台进程里隔 6 秒重试一次；再失败才记一行到 `~/.clawd/mochi-hook.log`。
+
+> **打盹（`sleepafter`）不归它管**：脚本一个字都不碰这个设置 —— 它是用户自己的、而且现在存 NVS，写一次就是一次 flash。干活时不许睡这件事在固件里做（`petIsWorking()`，见 `main.cpp`）。
 
 等价的手动命令（调试用）：
 
 ```bash
 python3 tools/mochi_hook.py UserPromptSubmit   # -> state thinking
 python3 tools/mochi_hook.py PreToolUse         # -> state working
-python3 tools/mochi_hook.py Stop               # -> state done
+python3 tools/mochi_hook.py Stop               # 最后一个会话时 -> state done
+echo '{"session_id":"x"}' | python3 tools/mochi_hook.py PreToolUse   # 模拟某个会话
 ```
 
 状态与动画的对应写在设备端 `data/theme/manifest.txt` 里（纯文本，改了不用重编固件），所以上表的 `thinking` / `working` / `done` 具体播哪段动画由主题决定。

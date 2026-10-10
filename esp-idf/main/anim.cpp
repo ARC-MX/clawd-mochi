@@ -35,7 +35,7 @@ static const char* TAG = "anim";
 #define THEME_DIR     ANIM_THEME_DIR
 #define MANIFEST_PATH ANIM_MANIFEST
 
-#define STATE_MAX     24     // longest state name we accept
+#define STATE_MAX     ANIM_STATE_MAX   // longest state name we accept
 // Not PATH_MAX: that is a standard <limits.h> macro and redefining it clashes.
 #define ANIM_PATH_MAX 128    // theme dir + "/" + filename, comfortably
 #define FILE_NAME_MAX 64
@@ -451,6 +451,18 @@ void animPlayState(const char* state) {
   strncpy(s_state, state ? state : "", sizeof(s_state) - 1);
   s_state[sizeof(s_state) - 1] = 0;
   s_gen++;
+  xSemaphoreGive(s_lock);
+}
+
+void animCurrentState(char* out, unsigned outLen) {
+  if (!out || outLen == 0) return;
+  out[0] = 0;
+  if (!s_lock) return;          // player not up yet: nothing is playing yet
+  // Copied under the lock: animPlayState writes s_state from the command worker
+  // and from the httpd task, and handing out the pointer would race them.
+  xSemaphoreTake(s_lock, portMAX_DELAY);
+  strncpy(out, s_state, outLen - 1);
+  out[outLen - 1] = 0;
   xSemaphoreGive(s_lock);
 }
 
