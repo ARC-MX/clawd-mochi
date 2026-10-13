@@ -94,7 +94,7 @@ def dist565(a, b):
     return (ar - br) ** 2 * 4 + (ag - bg) ** 2 + (ab - bb) ** 2 * 4
 
 
-def load_frames(path, bg565=0xFFFF, stride=1):
+def load_frames(path, bg565=0xFFFF, stride=1, opaque=False):
     """Return (index-byte arrays, delays, size, palette).
 
     Reads each frame through the GIF's OWN palette (`seek` + `convert("P")`)
@@ -106,6 +106,10 @@ def load_frames(path, bg565=0xFFFF, stride=1):
     When it does, the *palette* is quantised — never the pixels — so pixel
     indices are only remapped through a small lookup table and every run
     boundary is preserved.
+
+    `opaque` is for art that fills its frame, with no background behind it at
+    all (the `panel` theme's bezel reaches the panel's edge): there is no field
+    to find, so none is looked for and nothing is replaced.
     """
     im = Image.open(path)
 
@@ -142,8 +146,13 @@ def load_frames(path, bg565=0xFFFF, stride=1):
         pal565 = [rgb565(pal[k * 3], pal[k * 3 + 1], pal[k * 3 + 2])
                   for k in range(256)]
         idx = p.tobytes()
-        bg = bg_index(idx, im.size[0], im.size[1])
-        pal565[bg] = bg565      # background -> the theme's field colour
+        if not opaque:
+            bg = bg_index(idx, im.size[0], im.size[1])
+            pal565[bg] = bg565  # background -> the theme's field colour
+        # With `opaque` there is nothing to look for: the art covers the frame,
+        # so bg_index() would answer with the *artwork's* border colour and this
+        # would paint the field over it. Every pixel is kept as drawn, and index
+        # 0 stays the field with nothing on it.
         for u in set(idx):
             v = pal565[u]
             if v != bg565 and v not in union:
@@ -304,8 +313,8 @@ def compose(idx_frames, size, palette, margin, no_upscale=False):
 
 
 def convert(src, dst, margin=12, fit=True, bg565=0xFFFF, stride=1,
-            no_upscale=False):
-    idx_frames, delays, size, palette = load_frames(src, bg565, stride)
+            no_upscale=False, opaque=False):
+    idx_frames, delays, size, palette = load_frames(src, bg565, stride, opaque)
     cw, ch = size
     if fit:
         idx_frames, size, rect = compose(idx_frames, size, palette, margin,
@@ -336,6 +345,10 @@ def main():
     ap.add_argument("--no-upscale", action="store_true",
                     help="never scale the artwork up, only down; the device "
                          "is expected to magnify it on push")
+    ap.add_argument("--opaque", action="store_true",
+                    help="the art fills its frame and has no background, so "
+                         "none is looked for (default: the border colour that "
+                         "covers most of the frame is the field)")
     ap.add_argument("--stride", type=int, default=1,
                     help="keep every Nth frame (default 1). Dropped frames' "
                          "durations fold into the next kept frame, so the "
@@ -365,7 +378,7 @@ def main():
         src = os.path.join(args.input, name)
         dst = os.path.join(args.out, os.path.splitext(name)[0] + ".caf")
         size, frames = convert(src, dst, args.margin, not args.no_fit, bg565, args.stride,
-                args.no_upscale)
+                args.no_upscale, args.opaque)
         total += size
         orig = os.path.getsize(src)
         print(f"  {name:32} {frames:>3} frames  {orig/1024:>6.0f}K -> {size/1024:>5.0f}K")

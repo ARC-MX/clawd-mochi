@@ -87,6 +87,13 @@ def main():
                     help="override the art a state plays, e.g. done=attention")
     ap.add_argument("--stride", type=int, default=1, help="passed to gif2caf")
     ap.add_argument("--no-upscale", action="store_true", help="passed to gif2caf")
+    ap.add_argument("--opaque", action="store_true",
+                    help="passed to gif2caf: the art fills its frame, so there "
+                         "is no background to find")
+    ap.add_argument("--margin", type=int, default=12, metavar="PX",
+                    help="border gif2caf keeps around the art, in px (default "
+                         "12; 0 lets art that is authored at panel size fill "
+                         "the panel edge to edge)")
     ap.add_argument("--budget", type=int, default=2400,
                     help="partition budget in KB to check against (default 2400)")
     ap.add_argument("--spares", default=",".join(SPARE_SUFFIXES),
@@ -134,6 +141,10 @@ def main():
             cmd += ["--stride", str(args.stride)]
         if args.no_upscale:
             cmd += ["--no-upscale"]
+        if args.opaque:
+            cmd += ["--opaque"]
+        if args.margin != 12:              # 12 is gif2caf's own default
+            cmd += ["--margin", str(args.margin)]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         return os.path.basename(gif).rsplit(".", 1)[0] + ".caf"
 

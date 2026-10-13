@@ -10,6 +10,20 @@ sticker set, laid out the way `mktheme.py` expects, so the rest of the pipeline
   origin_art.py -o /tmp/origin-gifs
   origin_art.py --pack themes/origin          # ...and hand it to mktheme
 
+`--shell` picks how much of the character to draw, which is how the `face` theme
+is made from the same code and the same faces:
+
+  full    the whole pet (default) — legs, body, ears, screen, face
+  frame   the screen and what is on it: the black bezel, the lit panel, the face
+  bare    the face alone, on the field — no bezel and no panel behind it
+  panel   the screen filling the panel, its bezel along the panel's own edge
+
+The faces are identical in every shell; only what surrounds them changes, so a
+pose, a blink or a scroll reads the same wherever it is drawn. `panel` is the
+one that also changes the *size*: its face is drawn at twice the references's
+unit (16 px instead of 8), which is what makes 13 units of screen fill the
+panel's width edge to edge.
+
 Four choices here are forced by the pipeline, not by taste:
 
   * **The art is authored at panel size, and the pack uses scale 1.** A theme
@@ -29,6 +43,21 @@ Four choices here are forced by the pipeline, not by taste:
     It also means the pet fills the panel, as the reference does. Everything
     the character does horizontally — nothing, as it turns out — has to happen
     inside that box, which is why the error state vibrates instead of shaking.
+
+    A shell that draws less than the whole pet is *narrower* than that, and
+    cannot avoid it: the face keeps its size and its 8 px unit grid, so `frame`
+    comes to about 130 px across and `bare` to about 100. At fit scale 1 that
+    is allowed — the converter centres the box and the device draws it there —
+    so the rule below is `at most` 216 for those, and `exactly` only for `full`.
+    The catch is that verify_caf.py, which re-derives the fit, only agrees with
+    the packs whose art fills the box.
+
+    `panel` is the third case and the opposite one: its art is the panel, 240 px
+    across, and it is packed with `--margin 0` so the converter has no box to
+    fit it into and leaves it exactly where it was drawn. A margin at all would
+    make the fit 240/216 and scale the art by 0.9 — not an integer, so every
+    edge in it would land between pixels. The check below holds it to the panel
+    exactly, and pack() is where the margin is passed.
 
   * **The GIF is written by hand, full frames on one palette.** Pillow's
     encoder writes every frame after the first as a delta carrying its own
@@ -109,10 +138,63 @@ LEG_Y0, LEG_Y1 = 43, 50
 LEG_COLS = ((7, 15), (23, 36), (44, 52))    # three legs, two notches between
 
 # The face lives inside the screen on its own coarser grid: 8 px units, which
-# is the resolution the reference's pixel faces are drawn at.
+# is the resolution the reference's pixel faces are drawn at. UNIT and the
+# screen's inset are the two numbers a shell changes — see set_shell().
 UNIT = 8
-FACE_U = (SCR_X1 - SCR_X0 + 1) * GRID // UNIT    # 20 units across
-FACE_V = (SCR_Y1 - SCR_Y0 + 1) * GRID // UNIT    # 14 down
+SCR_INSET = 1                                    # cells of bezel before the screen
+FACE_U = (SCR_X1 - SCR_X0 + 1) * GRID // UNIT    # 13 units across
+FACE_V = (SCR_Y1 - SCR_Y0 + 1) * GRID // UNIT    # 12 down
+
+# How much of the character to draw — see --shell. Set once in main(); every
+# coordinate below is shared by the shells, so a face sits in the same place
+# whether or not there is a pet under it.
+SHELL = "full"
+
+
+def set_shell(name):
+    """Point the drawing at one composition's screen.
+
+    `full`, `frame` and `bare` share the pet's screen. `panel` is the screen
+    filling the panel, so its bezel is the panel's own edge and the screen grows
+    to meet it — and growing the screen grows the face's unit with it, because
+    the faces are drawn in units: 13 units of 16 px is 208 px, and two 16 px
+    bezels make the 240 px panel exactly. Nothing about a face has to change for
+    that; it comes out twice the size.
+    """
+    global SHELL, UNIT, SCR_INSET
+    global BEZEL_X0, BEZEL_X1, BEZEL_Y0, BEZEL_Y1, SCR_X0, SCR_X1, SCR_Y0, SCR_Y1
+    global FACE_U, FACE_V
+
+    SHELL = name
+    if name == "panel":
+        UNIT, SCR_INSET = 16, 4
+        BEZEL_X0, BEZEL_X1, BEZEL_Y0, BEZEL_Y1 = 0, 59, 0, 59
+        SCR_X0, SCR_X1 = 4, 55       # 52 cells = 13 units of 16 px, the faces' width
+        SCR_Y0, SCR_Y1 = 6, 53       # 48 cells = 12 units, centred in that screen
+    else:
+        UNIT, SCR_INSET = 8, 1
+        BEZEL_X0, BEZEL_X1, BEZEL_Y0, BEZEL_Y1 = 15, 44, 12, 39
+        SCR_X0, SCR_X1, SCR_Y0, SCR_Y1 = 17, 42, 14, 37
+
+    FACE_U = (SCR_X1 - SCR_X0 + 1) * GRID // UNIT
+    FACE_V = (SCR_Y1 - SCR_Y0 + 1) * GRID // UNIT
+    # Every face is drawn on a 13x12 grid of units, so a screen that is not that
+    # many units across would clip them. The geometry above has to add up, and
+    # this is where it is made to: a shell whose numbers are off stops here
+    # rather than producing art with a mouth cut off.
+    if (FACE_U, FACE_V) != (13, 12):
+        sys.exit(f"error: the {name} screen is {FACE_U}x{FACE_V} face units, "
+                 f"but every face is drawn on a 13x12 one")
+
+
+def surface():
+    """The colour that stands in for "the panel showing through" in a face.
+
+    On `bare` there is no panel, so the pixels two faces draw in SCREEN —
+    sparkle corners in face_done, the sunglasses glint in face_slack — become
+    the field instead, which reads as the same hole either way.
+    """
+    return BG if SHELL == "bare" else SCREEN
 
 
 # ── drawing ───────────────────────────────────────────────────
@@ -152,37 +234,74 @@ def frown(d, ox, oy):
 
 
 def draw_pet(d, p, face, i, n):
-    """One frame: legs, body, ears, screen, face.
+    """One frame: legs, body, ears, screen, face — as much of that as the shell
+    asks for.
 
     Poses are vertical on purpose. A hop moves the whole pet (the feet leave
     the ground); `squash` compresses the body from the top down, which is
     breathing; `squeeze` pulls the sides in, which is the error state's
     vibrate. Nothing translates sideways, so every frame's artwork stays inside
     the 216 px box the block above depends on.
+
+    The poses all move the *screen* as well as the body, so a shell with no
+    body still breathes and hops: that is what keeps the face alive.
     """
     hop = p.get("hop", 0)
     squash = p.get("squash", 0)
     squeeze = p.get("squeeze", 0)
 
+    if SHELL == "panel":
+        # The frame is the panel's own edge, so a pose has nowhere to move it:
+        # the hop and the breath move the *face* inside the screen instead,
+        # which is what they look like with no body to carry them. The screen
+        # has room for the pet's own amplitudes (8 px above the face, 24 below)
+        # and no more, so they stay as authored — twice the face, same motion.
+        cell(d, BEZEL_X0, BEZEL_Y0, BEZEL_X1, BEZEL_Y1, INK)
+        cell(d, SCR_X0, BEZEL_Y0 + SCR_INSET, SCR_X1, BEZEL_Y1 - SCR_INSET,
+             surface())
+        # squeeze has no sides left to pull in, so it shakes the face a cell
+        # down on alternate frames: the same flinch, from the other end.
+        dy = (squash - hop) * GRID - (GRID if squeeze else 0)
+        face(d, SCR_X0 * GRID, SCR_Y0 * GRID + dy, i, n, p)
+        return
+
+    if SHELL != "full":
+        # These shells are the screen alone, so its bob is the artwork's — and
+        # the device pushes the panel eight rows at a time (BAND_ROWS, anim.cpp:
+        # a frame whose height is not a multiple of 8 is refused, not clipped).
+        # The bob is therefore quantised to 8 px steps. Rounding down rather
+        # than up keeps every pose inside the amplitude the pet itself had, and
+        # a state that loses its 4 px breath still moves: the code scrolls, the
+        # sunglasses glint, the eyes blink.
+        hop -= hop % 2
+        squash -= squash % 2
+
     top = BODY_Y0 - hop + squash
     bot = BODY_Y1 - hop
 
-    # Legs first, so the body covers their tops. They are in the body's shadow
-    # in the render, and painting them darker is what makes a flat front view
-    # read as an object standing up.
-    for x0, x1 in LEG_COLS:
-        cell(d, x0 + squeeze, LEG_Y0 - hop, x1 - squeeze, LEG_Y1 - hop, SHADE)
+    if SHELL == "full":
+        # Legs first, so the body covers their tops. They are in the body's
+        # shadow in the render, and painting them darker is what makes a flat
+        # front view read as an object standing up.
+        for x0, x1 in LEG_COLS:
+            cell(d, x0 + squeeze, LEG_Y0 - hop, x1 - squeeze, LEG_Y1 - hop, SHADE)
 
-    cell(d, BODY_X0 + squeeze, top, BODY_X1 - squeeze, bot, BODY)
+        cell(d, BODY_X0 + squeeze, top, BODY_X1 - squeeze, bot, BODY)
 
-    for x0, x1 in ((EAR_X0 + squeeze, BODY_X0 - 1 + squeeze),
-                   (BODY_X1 + 1 - squeeze, EAR_X1 - squeeze)):
-        cell(d, x0, EAR_Y0 - hop + squash, x1, EAR_Y1 - hop + squash, BODY)
-        cell(d, x0, EAR_Y1 - hop + squash, x1, EAR_Y1 - hop + squash, SHADE)
+        for x0, x1 in ((EAR_X0 + squeeze, BODY_X0 - 1 + squeeze),
+                       (BODY_X1 + 1 - squeeze, EAR_X1 - squeeze)):
+            cell(d, x0, EAR_Y0 - hop + squash, x1, EAR_Y1 - hop + squash, BODY)
+            cell(d, x0, EAR_Y1 - hop + squash, x1, EAR_Y1 - hop + squash, SHADE)
 
     sy0, sy1 = BEZEL_Y0 - hop + squash, BEZEL_Y1 - hop + squash
-    cell(d, BEZEL_X0, sy0, BEZEL_X1, sy1, INK)
-    cell(d, SCR_X0, sy0 + 1, SCR_X1, sy1 - 1, SCREEN)
+    if SHELL != "bare":
+        # With a body under it, the squeeze pulls the body's sides in and the
+        # frame rides inside untouched. With no body, flexing the frame itself
+        # is the only thing left for the error state to do — and it flexes the
+        # bezel, never the screen, so the face is never cut into.
+        flex = squeeze if SHELL != "full" else 0
+        cell(d, BEZEL_X0 + flex, sy0, BEZEL_X1 - flex, sy1, INK)
+        cell(d, SCR_X0, sy0 + SCR_INSET, SCR_X1, sy1 - SCR_INSET, surface())
 
     face(d, SCR_X0 * GRID, (SCR_Y0 - hop + squash) * GRID, i, n, p)
 
@@ -238,7 +357,7 @@ def face_done(d, ox, oy, i, n, p):
     for u in (2, 8):
         unit(d, ox, oy, u, 3, 3, 3, INK)
         for du, dv in ((0, 0), (2, 0), (0, 2), (2, 2)):
-            unit(d, ox, oy, u + du, 3 + dv, 1, 1, SCREEN)
+            unit(d, ox, oy, u + du, 3 + dv, 1, 1, surface())
     for u in (1, 11):
         unit(d, ox, oy, u, 6, 1, 1, BLUSH)
     smile(d, ox, oy)
@@ -279,7 +398,7 @@ def face_slack(d, ox, oy, i, n, p):
     g = p.get("glint")
     if g is not None:
         for u in (1, 8):
-            unit(d, ox, oy, u + 1 + g, 3, 1, 1, SCREEN)
+            unit(d, ox, oy, u + 1 + g, 3, 1, 1, surface())
     unit(d, ox, oy, 5, 8, 3, 1, INK)
 
 
@@ -455,9 +574,25 @@ def check(suffix, frames):
         xs1, ys1 = max(xs1, box[2] - 1), max(ys1, box[3] - 1)
 
     w, h = xs1 - xs0 + 1, ys1 - ys0 + 1
-    if w != PANEL - 2 * MARGIN:
-        sys.exit(f"error: {suffix}: artwork is {w} px wide, must be exactly "
-                 f"{PANEL - 2 * MARGIN} — the converter's fit scale has to be 1")
+    if SHELL == "panel":
+        # The bezel is the panel's edge, so the art *is* the panel: same size,
+        # same place, and nothing for the converter to fit or centre — which is
+        # why pack() hands this shell `--margin 0`.
+        if (xs0, ys0, w, h) != (0, 0, PANEL, PANEL):
+            sys.exit(f"error: {suffix}: the panel shell draws {w}x{h} at "
+                     f"({xs0},{ys0}); it has to be the whole panel at (0,0)")
+        return (xs0, ys0, w, h)
+    # The whole pet has to fill the box exactly — see the docstring. A shell
+    # that draws only the screen, or only the face, is narrower by construction
+    # (it keeps the face's own size and grid), and at fit scale 1 a smaller box
+    # is fine: the converter centres it on the panel.
+    if SHELL == "full":
+        if w != PANEL - 2 * MARGIN:
+            sys.exit(f"error: {suffix}: artwork is {w} px wide, must be exactly "
+                     f"{PANEL - 2 * MARGIN} — the converter's fit scale has to be 1")
+    elif w > PANEL - 2 * MARGIN:
+        sys.exit(f"error: {suffix}: artwork is {w} px wide, must be at most "
+                 f"{PANEL - 2 * MARGIN}")
     if h > PANEL - 2 * MARGIN or h % 8:
         sys.exit(f"error: {suffix}: artwork is {h} px tall, must be a multiple "
                  f"of 8 and at most {PANEL - 2 * MARGIN}")
@@ -579,13 +714,36 @@ def check_gif(path, frames):
         # transparent entry can hand it back on any one of them. What gif2caf
         # needs is that it is *one* index, and that no artwork pixel shares it,
         # or that pixel is read as background and swallows the art.
-        field = got[0]                     # the corner is always field
+        #
+        # It is found by colour rather than read off the corner, which is how
+        # this used to do it: the corner is field in every shell that leaves one
+        # empty, but `panel` draws its bezel there. The field's *colour* is the
+        # one thing that holds either way — load_frames pins it to index 0.
+        #
+        # `panel` has no field at all: its art covers every pixel of the frame,
+        # and Pillow hands a covered frame back with a palette that need not
+        # contain the field colour. There is nothing to look for, and the check
+        # below turns into the opposite one — an artwork pixel on the field
+        # would mean the shell failed to cover the panel.
+        field = None
+        if SHELL != "panel":
+            for k in range(len(pal) // 3):
+                if tuple(pal[k * 3:k * 3 + 3]) == PALETTE[BG]:
+                    field = k
+                    break
+            if field is None:
+                sys.exit(f"error: {path}: frame {i}: the field colour "
+                         f"{PALETTE[BG]} is not in the palette Pillow handed back")
         for src, dst in zip(want.tobytes(), got):
             if src == BG:
+                if field is None:
+                    sys.exit(f"error: {path}: frame {i}: the art of the {SHELL} "
+                             f"shell draws field pixels; it has to cover the "
+                             f"panel")
                 if dst != field:
                     sys.exit(f"error: {path}: frame {i}: field pixels came back "
                              f"on index {dst} as well as {field}")
-            elif dst == field:
+            elif field is not None and dst == field:
                 sys.exit(f"error: {path}: frame {i}: an artwork pixel shares the "
                          f"field index {field} and would be read as background")
             elif tuple(pal[dst * 3:dst * 3 + 3]) != PALETTE[src]:
@@ -613,12 +771,20 @@ def pack(gif_dir, out_dir, prefix):
 
     The mapping is explicit because the art here is named after the *face*
     (standby, coding, done, slack), not after the upstream sticker sets' names.
+
+    `panel` also needs `--margin 0` and `--opaque`: its art is the whole panel,
+    so any margin would leave the converter fitting a 240 px picture into a
+    216 px box (a scale of 0.9, which puts every edge in the art between two
+    pixels), and its bezel reaches the frame's own border, where the converter
+    looks for a background to replace.
     """
     cmd = [sys.executable, MKTHEME, gif_dir, "-o", out_dir, "--prefix", prefix,
            "--no-upscale", "--budget", "2400",
            "--map", "idle=standby", "--map", "working=coding",
            "--map", "done=done",
            "--spares", "happy,slack,grin,shine,blank"]
+    if SHELL == "panel":
+        cmd += ["--margin", "0", "--opaque"]
     print(f"\n$ {' '.join(cmd[1:])}")
     return subprocess.call(cmd)
 
@@ -634,9 +800,16 @@ def main():
                     help="sticker filename prefix (default: origin)")
     ap.add_argument("--states", default="",
                     help="comma-separated subset to draw (default: all)")
+    ap.add_argument("--shell", choices=("full", "frame", "bare", "panel"),
+                    default="full",
+                    help="how much of the character to draw: the whole pet "
+                         "(default), just the screen it has a face on, just the "
+                         "face, or that screen filling the panel")
     ap.add_argument("--sheet", metavar="DIR",
                     help="write one contact sheet PNG per state here")
     args = ap.parse_args()
+
+    set_shell(args.shell)
 
     if not args.out and not args.pack:
         ap.error("give -o (where the GIFs go), --pack (a theme to build), or both")
