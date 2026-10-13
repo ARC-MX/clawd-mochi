@@ -52,7 +52,7 @@ Open browser:
 | `// controls` | 屏幕开/关 |
 | `// brightness` | 背光亮度 0–100%（存在设备里，重启保留） |
 | `// views` | 切到 空闲 / 完成 动画、Claude Code 视图、画布 |
-| `// theme` | 换主题包（选一个文件夹上传，会替换设备上现有的那套）、单独播放某个表情 |
+| `// theme` | 主题库：加一个 `.zip` 主题包进去、推给设备（会替换现有那套）、把内置那套请回来；也可以单独播放某个表情 |
 | `// device` | 改设备名（**热点名和蓝牙广播名是同一个**）和 WiFi 密码；保存后设备**重启**，需要用新名字重新连 |
 | `// terminal` | 设备上的小终端（打字） |
 | Canvas | 用手机/触屏在屏幕上画画 |
@@ -180,4 +180,4 @@ python tools\mochi_ble.py state working
 以下两份是**给要改代码/换主题的人**看的，只用设备的话不必读：
 
 - ESP-IDF 固件端的说明（与 Arduino 版的差异、启动流程、完整的串口/BLE 命令表）：[esp-idf/README.md](esp-idf/README.md)
-- 与 Claude Code 的联动方案（BLE / 串口 / WiFi 三条路线，以及为什么换主题是三步）：[CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)
+- 与 Claude Code 的联动方案（BLE / 串口 / WiFi 三条路线，以及主题包是怎么装到设备上的）：[CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)

@@ -60,7 +60,7 @@ Then open **<http://192.168.4.1>** in a browser.
 | `// controls` | display on / off |
 | `// brightness` | backlight level, 0–100% (stored on the device, survives a reboot) |
 | `// views` | switch to the idle / done animations, the Claude Code view, or the canvas |
-| `// theme` | replace the theme pack (pick a folder — it replaces what is on the device), or play a single expression |
+| `// theme` | the theme library: add a `.zip` pack, push it to the device (which replaces the one on it), put the built-in pack back — or play a single expression |
 | `// device` | change the device name (**the hotspot and the Bluetooth advertisement share it**) and the WiFi password; saving **restarts** the device, so you reconnect under the new name |
 | `// terminal` | the small terminal on the device — type into it |
 | Canvas | draw on the display from a phone or a touchscreen |
@@ -206,5 +206,5 @@ device:
 
 - The firmware side, in ESP-IDF (differences from the Arduino sketch, boot sequence, the full
   serial/BLE command table): [esp-idf/README.md](esp-idf/README.md)
-- The Claude Code bridge in full (BLE / serial / WiFi, and why a theme swap takes three steps):
+- The Claude Code bridge in full (BLE / serial / WiFi, and how a theme pack gets onto the device):
   [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)

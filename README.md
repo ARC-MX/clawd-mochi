@@ -170,14 +170,17 @@ Clawd Mochi 放在桌面上，用一块小彩屏播放动画表情。连上它�
 
 ### 主题（动画）
 
-宠物的表情来自 `esp-idf/data/theme/`：一个纯文本 manifest 把状态名映射到 `.caf` 动画文件，所以你可以**直接在设备上编辑文件**来改变某个状态的样子（或者新增一个状态）—— 不需要动固件。
+宠物的表情来自**主题包**：一个目录里放着纯文本 manifest（把状态名映射到 `.caf` 动画文件）加上那些 `.caf`，所以改某个状态的样子只是编辑文件的事 —— 不需要动固件。
 
 ```
-esp-idf/data/theme/manifest.txt   # state=file，一行一个，另有 scale=N
-esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
+themes/clawd/manifest.txt   # state=file，一行一个，另有 scale=N
+themes/clawd/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
+themes/clawd.zip            # 打包给设备的那一个文件（tools/mochi_theme.py bundle）
 ```
 
-一个主题目录加上它的 manifest 就是一个**主题包**，设备上**只放得下一个** —— 2.44 MB 的 LittleFS 分区刚好够装一组约 2 MB 的包，没有余地。在网页的 `// theme` 区切换：它会逐个文件上传新包、最后提交。为什么是"三步替换"而不是直接换，见 [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)。
+设备上**只放得下一个包** —— 2.44 MB 的 LittleFS 分区刚好够装一组约 2 MB 的包，没有余地，所以"换主题"就是替换。装法是把它加进网页 `// theme` 区的主题库再推给设备：整个 `.zip` 一次请求发过去，设备按包里的目录预先核对解压体积，装不下就直接拒绝 —— 拒绝和失败都会把**固件内置的那套**装回去，不会留下一个空主题。`restore built-in` 按钮手动做同一件事。
+
+内置的是 `themes/clawd`（螃蟹，12 个状态），固件把它压缩后烘在 app 分区里（`esp-idf/main/default_pack.zip`），所以设备什么都不推也有一张脸。内置那套的原理见 [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)。
 
 ### 设备上现有的状态
 
@@ -239,22 +242,23 @@ esp-idf/data/theme/*.caf          # 由 tools/gif2caf.py 从 GIF 转换而来
 | `spare-idle` | `clawd-idle.caf` | 48 | 3.2 s | 132 KB |
 | `spare-reading` | `clawd-idle-reading.caf` | 60 | 4.0 s | 266 KB |
 
-设备上随时可以列出当前主题提供了哪些状态：串口/BLE 发 `states`，或看网页 `// theme` 区那个下拉框。上面这些动图可以用 `python3 tools/theme_gifs.py esp-idf/data/theme pics/states` 重新生成（改了主题之后跑一次）。
+设备上随时可以列出当前主题提供了哪些状态：串口/BLE 发 `states`，或看网页 `// theme` 区那个下拉框。上面这些动图可以用 `python3 tools/theme_gifs.py themes/clawd pics/states` 重新生成（改了主题之后跑一次）。
 
-把一套贴图打包成主题包：
+把一套贴图打包成主题包，再打成设备收的那一个文件：
 
 ```bash
-python3 tools/mktheme.py ../stickers/128/calico -o /tmp/calico-pack \
+python3 tools/mktheme.py ../stickers/128/calico -o themes/calico \
         --scale 2 --no-upscale
+python3 tools/mochi_theme.py bundle themes/calico -o themes/calico.zip
 ```
 
-它会打印打包后的体积与分区预算的对比，所以一个过大的包在烧录前就能看出来，而不是上传到一半才发现。`tools/mochi_theme.py` 是整条流水线的入口 —— `convert`、`pack`、`verify`、`preview` —— 其中 `preview` 最值得知道：
+`mktheme` 会打印打包后的体积与分区预算的对比，所以一个过大的包在推送前就能看出来，而不是传到一半才发现。`tools/mochi_theme.py` 是整条流水线的入口 —— `convert`、`pack`、`bundle`、`verify`、`preview` —— 其中 `preview` 最值得知道：
 
 ```bash
-python3 tools/mochi_theme.py preview /tmp/calico-pack -o /tmp/calico.png
+python3 tools/mochi_theme.py preview themes/calico -o /tmp/calico.png
 ```
 
-它把**屏幕实际会显示的样子**渲染出来 —— manifest 里的 `scale`、以你的背景色透出的透明区域、画面在存储位置上的取值 —— 所以不用烧录就能判断一组包好不好。建议上传前先跑一次，因为换主题是**破坏性**的：旧包会先被删掉，没有地方留备份。
+它把**屏幕实际会显示的样子**渲染出来 —— manifest 里的 `scale`、以你的背景色透出的透明区域、画面在存储位置上的取值 —— 所以不用烧录就能判断一组包好不好。建议推送前先跑一次。
 
 **决定一组贴图能不能装下的有两个因素**，而且它们互相影响：
 
@@ -264,6 +268,59 @@ python3 tools/mochi_theme.py preview /tmp/calico-pack -o /tmp/calico.png
 另外还有 `--stride N`：每 N 帧保留一帧，把被丢掉那几帧的时长折算到留下的帧上，动画总时长不变 —— 这是拿流畅度换体积，而不是偷偷把主题放快。
 
 播放速度来自主题包本身、不来自固件：每个 `.caf` 里存着从源 GIF 取的每帧时长，所以 8 fps 做的主题和 17 fps 做的主题各按自己当初的节奏播放。背景色用串口或 BLE 的 `bg#RRGGBB` 设置，并存在 NVS 里（重启后保留）；每一帧的调色板索引 0 都是透明的，所以 `.caf` 里烘死的那个颜色永远不会显示出来。
+
+### 原版主题：橙色方块宠（`themes/origin`）
+
+仓库里另有一套主题包，角色不是上游贴图集里的螃蟹，而是产品图上那只**橙色方块宠**：方脑袋、两侧小耳朵、正面一块黑框屏幕、下面三条腿，表情用像素画在屏幕里。
+
+它的美术没有来源 —— 贴图集里没有这个角色 —— 所以它是**用代码画出来的**：`tools/origin_art.py` 逐帧渲染 240×240 的像素画，再交给同一条流水线转成 `.caf`。想改它的样子就是改那个脚本里的几个数。
+
+设备状态到表情的对应（`idle` 用"待机中"的平眼，因为宠物绝大多数时间停在这个状态）：
+
+| 状态 | 表情 | 文件 | 帧数 | 单次循环 | 体积 |
+| --- | --- | --- | --- | --- | --- |
+| `idle` | 待机中（两条竖杠，会眨眼） | `origin-standby.caf` | 24 | 2.9 s | 45 KB |
+| `thinking` | 思考中（方眼 + 腮红，眼珠左右瞟） | `origin-thinking.caf` | 16 | 1.6 s | 31 KB |
+| `working` | 工作中（`</>` + 一行滚动的代码） | `origin-coding.caf` | 20 | 1.6 s | 46 KB |
+| `done` | 完成啦（闪光眼 + 腮红，原地小跳） | `origin-done.caf` | 16 | 1.3 s | 33 KB |
+| `error` | 出错（XX 眼 + 下弯嘴，全身一抖） | `origin-error.caf` | 12 | 1.1 s | 26 KB |
+| `sleep` | 打盹（闭眼 + 冒 z） | `origin-sleeping.caf` | 24 | 3.6 s | 46 KB |
+| `spare-happy` | 开心（`^^` 眼 + 腮红 + 笑口） | `origin-happy.caf` | 16 | 1.1 s | 33 KB |
+| `spare-slack` | 摸鱼中（墨镜 + 反光扫过） | `origin-slack.caf` | 16 | 1.9 s | 31 KB |
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/origin/idle.gif" width="200"><br><code>idle</code> 待机中</td>
+    <td align="center"><img src="pics/origin/thinking.gif" width="200"><br><code>thinking</code> 思考中</td>
+    <td align="center"><img src="pics/origin/working.gif" width="200"><br><code>working</code> 工作中</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/origin/done.gif" width="200"><br><code>done</code> 完成啦</td>
+    <td align="center"><img src="pics/origin/error.gif" width="200"><br><code>error</code> 出错</td>
+    <td align="center"><img src="pics/origin/sleep.gif" width="200"><br><code>sleep</code> 打盹</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/origin/spare-happy.gif" width="130"><br><code>spare-happy</code> 开心</td>
+    <td align="center"><img src="pics/origin/spare-slack.gif" width="130"><br><code>spare-slack</code> 摸鱼中</td>
+  </tr>
+</table>
+
+参考图里只有六张脸，所以表里有两张是补的：`error` 按同一套配色和像素风新画（XX 眼 + 下弯嘴），`sleep` 是待机中那张脸的"睡着版"（闭眼 + 冒 z）。另外这套是照着**奶油底色**画的 —— 背景是运行时设置，把网页上的 Pet BG 调成 `#FDF0DD` 最接近参考图（或者串口/BLE 发 `bg#FDF0DD`，存在 NVS 里）。
+
+装了 296 KB 的它，就腾出了 1.7 MB 的分区 —— 这也是当初想加一套包时的动机之一。
+
+重新生成素材、打包、预览：
+
+```bash
+python3 tools/origin_art.py --pack themes/origin        # 画 + 打包，一步
+python3 tools/mochi_theme.py bundle themes/origin -o themes/origin.zip
+python3 tools/mochi_theme.py preview themes/origin -o /tmp/origin.png --bg '#FDF0DD'
+```
+
+`origin_art.py -o /tmp/origin-gifs` 只画 GIF 不打包；`--sheet DIR` 另外把每个状态的所有帧铺成一张 PNG，用来检查动作（GIF 播放器只看得到第一帧）。
 
 ### Logo 动画时长
 

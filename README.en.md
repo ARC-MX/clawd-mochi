@@ -190,20 +190,29 @@ You can also download the models from MakerWorld: [https://makerworld.com/en/mod
 
 ### Theme (animations)
 
-The pet's expressions come from `esp-idf/data/theme/`: a plain-text manifest maps
-state names to `.caf` animation files, so you can change what a state looks like
-(or add one) by editing files on the device — no firmware change.
+The pet's expressions come from a **pack**: a directory holding a plain-text
+manifest that maps state names to `.caf` animation files, so what a state looks
+like is a file edit — no firmware change.
 
 ```
-esp-idf/data/theme/manifest.txt   # state=file, one per line, plus scale=N
-esp-idf/data/theme/*.caf          # converted from GIF by tools/gif2caf.py
+themes/clawd/manifest.txt   # state=file, one per line, plus scale=N
+themes/clawd/*.caf          # converted from GIF by tools/gif2caf.py
+themes/clawd.zip            # the one file the device takes (mochi_theme.py bundle)
 ```
 
-A theme directory plus its manifest is a **pack**, and the device holds exactly
-one — the 2.44 MB LittleFS partition has room for one pack of roughly 2 MB and
-nothing else. Switch packs from the web UI's `// theme` section, which posts the
-new pack file by file and then commits it; see CLAUDE-CODE-BRIDGE.md for why
-that is a three-step replacement rather than a swap.
+The device holds **one** pack: the 2.44 MB LittleFS partition has room for one
+of roughly 2 MB and nothing else, so changing themes means replacing. Add the
+`.zip` to the theme library in the web UI's `// theme` section and push it —
+the whole file goes in one request, the device checks its unpacked size against
+the central directory before writing it, and anything that does not fit is
+refused. A refusal, like a failure, puts the **firmware's built-in pack** back
+rather than leaving an empty theme; the `restore built-in` button does the same
+by hand.
+
+What is built in is `themes/clawd` (the crab, twelve states), compressed into
+the app partition as `esp-idf/main/default_pack.zip`, so a device that has never
+been pushed to still has a face. How that works is in
+[CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md).
 
 ### The states this theme provides
 
@@ -274,18 +283,19 @@ by the `session_id` in the hook's stdin — see
 
 Ask the device which states its mounted theme offers at any time: send `states` over serial or
 BLE, or look at the picker in the web UI's `// theme` section. Regenerate the clips above with
-`python3 tools/theme_gifs.py esp-idf/data/theme pics/states` after changing a theme.
+`python3 tools/theme_gifs.py themes/clawd pics/states` after changing a theme.
 
-Build a pack from a sticker set with:
+Build a pack from a sticker set, then the one file the device takes:
 
 ```bash
-python3 tools/mktheme.py ../stickers/128/calico -o /tmp/calico-pack \
+python3 tools/mktheme.py ../stickers/128/calico -o themes/calico \
         --scale 2 --no-upscale
+python3 tools/mochi_theme.py bundle themes/calico -o themes/calico.zip
 ```
 
-It prints the packed size against the partition budget, so an oversized pack is
-obvious before flashing rather than during upload. `tools/mochi_theme.py`
-fronts the whole pipeline — `convert`, `pack`, `verify`, `preview` — and
+`mktheme` prints the packed size against the partition budget, so an oversized
+pack is obvious before pushing rather than during. `tools/mochi_theme.py` fronts
+the whole pipeline — `convert`, `pack`, `bundle`, `verify`, `preview` — and
 `preview` is the one worth knowing about:
 
 ```bash
@@ -294,9 +304,7 @@ python3 tools/mochi_theme.py preview /tmp/calico-pack -o /tmp/calico.png
 
 It renders what the panel will show — the manifest's `scale`, the transparent
 field with your background behind it, the frame at its stored position — so a
-pack can be judged without flashing it. Worth doing before an upload, since
-replacing a theme is destructive: the old pack is deleted first, and there is
-no room to keep a copy.
+pack can be judged without flashing it. Worth doing before a push.
 
 **Two things decide whether a set fits**, and they interact:
 
@@ -319,6 +327,74 @@ per-frame duration taken from the source GIF, so a set authored at 8 fps and one
 authored at 17 fps each play at the rate they were drawn for. The background
 colour follows `bg#RRGGBB` over serial or BLE, and is stored in NVS — it survives a reboot — palette index 0 in every
 frame is transparent, so the colour baked into the `.caf` is never displayed.
+
+### The original theme: the orange cube pet (`themes/origin`)
+
+The repository ships a second pack whose character is not the crab from the
+upstream sticker sets but the **orange cube pet** from the product art: a square
+head, small ears on both sides, a black-framed screen on the front, three legs
+underneath, and pixel-art faces drawn inside that screen.
+
+Its artwork has no source — no sticker set contains this character — so it is
+**drawn in code**: `tools/origin_art.py` renders 240×240 pixel art frame by
+frame and hands it to the same pipeline that converts everything else. Changing
+how it looks means changing a few numbers in that script.
+
+Which state plays which face (`idle` uses the flat-eyed standby face, because
+that is where the pet spends nearly all of its time):
+
+| State | Face | File | Frames | Loop | Size |
+| --- | --- | --- | --- | --- | --- |
+| `idle` | standby (two bars, blinks) | `origin-standby.caf` | 24 | 2.9 s | 45 KB |
+| `thinking` | thinking (square eyes, blush, gaze wandering) | `origin-thinking.caf` | 16 | 1.6 s | 31 KB |
+| `working` | working (`</>` over a scrolling line of code) | `origin-coding.caf` | 20 | 1.6 s | 46 KB |
+| `done` | done (sparkle eyes, blush, a little hop) | `origin-done.caf` | 16 | 1.3 s | 33 KB |
+| `error` | error (X eyes, a frown, a whole-body flinch) | `origin-error.caf` | 12 | 1.1 s | 26 KB |
+| `sleep` | napping (eyes shut, z rising) | `origin-sleeping.caf` | 24 | 3.6 s | 46 KB |
+| `spare-happy` | happy (`^^` eyes, blush, a smile) | `origin-happy.caf` | 16 | 1.1 s | 33 KB |
+| `spare-slack` | slacking off (sunglasses, a glint crossing them) | `origin-slack.caf` | 16 | 1.9 s | 31 KB |
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/origin/idle.gif" width="200"><br><code>idle</code> standby</td>
+    <td align="center"><img src="pics/origin/thinking.gif" width="200"><br><code>thinking</code></td>
+    <td align="center"><img src="pics/origin/working.gif" width="200"><br><code>working</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/origin/done.gif" width="200"><br><code>done</code></td>
+    <td align="center"><img src="pics/origin/error.gif" width="200"><br><code>error</code></td>
+    <td align="center"><img src="pics/origin/sleep.gif" width="200"><br><code>sleep</code></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="pics/origin/spare-happy.gif" width="130"><br><code>spare-happy</code></td>
+    <td align="center"><img src="pics/origin/spare-slack.gif" width="130"><br><code>spare-slack</code></td>
+  </tr>
+</table>
+
+The reference art has six faces, so two of these are mine: `error` is drawn in
+the same palette and pixel style (X eyes and a frown), and `sleep` is the
+standby face asleep (eyes shut, a z rising). The set is drawn against a **cream**
+background — the background is a runtime setting, so set Pet BG to `#FDF0DD` in
+the web UI for the reference look, or send `bg#FDF0DD` over serial or BLE,
+which stores it in NVS.
+
+Installing it costs 296 KB, which leaves 1.7 MB of the partition free — part of
+the point of a second pack.
+
+Regenerate the art, build the pack, look at it:
+
+```bash
+python3 tools/origin_art.py --pack themes/origin        # draw and pack in one go
+python3 tools/mochi_theme.py bundle themes/origin -o themes/origin.zip
+python3 tools/mochi_theme.py preview themes/origin -o /tmp/origin.png --bg '#FDF0DD'
+```
+
+`origin_art.py -o /tmp/origin-gifs` draws the GIFs without packing them, and
+`--sheet DIR` lays every frame of every state out as a PNG for checking the
+motion — a GIF viewer only ever shows you the first frame.
 
 ### Logo animation duration
 
