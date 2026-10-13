@@ -283,12 +283,15 @@ python3 tools/mochi_theme.py preview themes/calico -o /tmp/calico.png
 | --- | --- | --- | --- | --- | --- |
 | `idle` | 待机中（两条竖杠，会眨眼） | `origin-standby.caf` | 24 | 2.9 s | 45 KB |
 | `thinking` | 思考中（方眼 + 腮红，眼珠左右瞟） | `origin-thinking.caf` | 16 | 1.6 s | 31 KB |
-| `working` | 工作中（`</>` + 一行滚动的代码） | `origin-coding.caf` | 20 | 1.6 s | 46 KB |
+| `working` | 工作中（`</>` + 一行滚动的代码） | `origin-coding.caf` | 20 | 1.6 s | 50 KB |
 | `done` | 完成啦（闪光眼 + 腮红，原地小跳） | `origin-done.caf` | 16 | 1.3 s | 33 KB |
 | `error` | 出错（XX 眼 + 下弯嘴，全身一抖） | `origin-error.caf` | 12 | 1.1 s | 26 KB |
 | `sleep` | 打盹（闭眼 + 冒 z） | `origin-sleeping.caf` | 24 | 3.6 s | 46 KB |
 | `spare-happy` | 开心（`^^` 眼 + 腮红 + 笑口） | `origin-happy.caf` | 16 | 1.1 s | 33 KB |
-| `spare-slack` | 摸鱼中（墨镜 + 反光扫过） | `origin-slack.caf` | 16 | 1.9 s | 31 KB |
+| `spare-slack` | 摸鱼中（墨镜 + 反光扫过） | `origin-slack.caf` | 16 | 1.9 s | 30 KB |
+| `spare-grin` | 大笑（眯眼 `◡◡` + 张嘴跳） | `origin-grin.caf` | 16 | 1.1 s | 33 KB |
+| `spare-shine` | 闪亮（菱形星芒眼 + 腮红） | `origin-shine.caf` | 16 | 1.4 s | 36 KB |
+| `spare-blank` | 无语（两个方点 + 一条平嘴） | `origin-blank.caf` | 24 | 3.4 s | 43 KB |
 
 <table>
   <tr>
@@ -307,12 +310,17 @@ python3 tools/mochi_theme.py preview themes/calico -o /tmp/calico.png
   <tr>
     <td align="center"><img src="pics/origin/spare-happy.gif" width="130"><br><code>spare-happy</code> 开心</td>
     <td align="center"><img src="pics/origin/spare-slack.gif" width="130"><br><code>spare-slack</code> 摸鱼中</td>
+    <td align="center"><img src="pics/origin/spare-grin.gif" width="130"><br><code>spare-grin</code> 大笑</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/origin/spare-shine.gif" width="130"><br><code>spare-shine</code> 闪亮</td>
+    <td align="center"><img src="pics/origin/spare-blank.gif" width="130"><br><code>spare-blank</code> 无语</td>
   </tr>
 </table>
 
-参考图里只有六张脸，所以表里有两张是补的：`error` 按同一套配色和像素风新画（XX 眼 + 下弯嘴），`sleep` 是待机中那张脸的"睡着版"（闭眼 + 冒 z）。另外这套是照着**奶油底色**画的 —— 背景是运行时设置，把网页上的 Pet BG 调成 `#FDF0DD` 最接近参考图（或者串口/BLE 发 `bg#FDF0DD`，存在 NVS 里）。
+参考图里只有六张脸，所以另外几张是补的：`error` 按同一套配色和像素风新画（XX 眼 + 下弯嘴），`sleep` 是待机中那张脸的"睡着版"（闭眼 + 冒 z），而 `grin`/`shine`/`blank` 是照着图底部那行"更多表情持续更新中…"里的小脸画的（第一个"眯眼笑"就是已有的 `happy`）。另外这套是照着**奶油底色**画的 —— 背景是运行时设置，把网页上的 Pet BG 调成 `#FDF0DD` 最接近参考图（或者串口/BLE 发 `bg#FDF0DD`，存在 NVS 里）。
 
-装了 296 KB 的它，就腾出了 1.7 MB 的分区 —— 这也是当初想加一套包时的动机之一。
+装了 408 KB 的它，还剩约 2.0 MB 的分区余量 —— 这也是当初想加一套包时的动机之一。
 
 重新生成素材、打包、预览：
 

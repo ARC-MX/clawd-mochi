@@ -283,6 +283,43 @@ def face_slack(d, ox, oy, i, n, p):
     unit(d, ox, oy, 5, 8, 3, 1, INK)
 
 
+def face_grin(d, ox, oy, i, n, p):
+    """The sheet's closed-eye laugh: the eyes curve the other way from happy's,
+    and the mouth drops open at the top of the hop."""
+    for u in (2, 8):
+        glyph(d, ox, oy, u, 4, ("#.#", ".#."))
+    for u in (1, 11):
+        unit(d, ox, oy, u, 6, 1, 1, BLUSH)
+    unit(d, ox, oy, 4, 7, 1, 1, INK)
+    unit(d, ox, oy, 8, 7, 1, 1, INK)
+    unit(d, ox, oy, 5, 9 if p.get("open") else 8, 3, 1, INK)
+
+
+def face_shine(d, ox, oy, i, n, p):
+    """Diamond sparkles for eyes, drawn hollow so the screen shows through as a
+    glint, filling in solid for a couple of frames as if catching the light."""
+    for u in (1, 8):
+        for dv, row in enumerate(("..#..", ".#.#.", "#...#", ".#.#.", "..#..")):
+            for du, ch in enumerate(row):
+                if ch == "#":
+                    unit(d, ox, oy, u + du, 1 + dv, 1, 1, INK)
+        if p.get("twinkle"):
+            for dv in range(3):
+                unit(d, ox, oy, u + 1, 2 + dv, 3, 1, INK)
+    for u in (1, 11):
+        unit(d, ox, oy, u, 6, 1, 1, BLUSH)
+    smile(d, ox, oy)
+
+
+def face_blank(d, ox, oy, i, n, p):
+    """Two dots and a flat line — the last face on the sheet, and the only one
+    that says nothing at all."""
+    if not p.get("blink"):
+        unit(d, ox, oy, 4, 4, 1, 1, INK)
+        unit(d, ox, oy, 8, 4, 1, 1, INK)
+    unit(d, ox, oy, 5, 7, 3, 1, INK)
+
+
 FACE = {
     "standby": face_standby,
     "thinking": face_thinking,
@@ -292,6 +329,9 @@ FACE = {
     "sleeping": face_sleeping,
     "happy": face_happy,
     "slack": face_slack,
+    "grin": face_grin,
+    "shine": face_shine,
+    "blank": face_blank,
 }
 
 
@@ -306,8 +346,13 @@ STATES = [
     ("done", "done", 16, 80),
     ("error", "error", 12, 90),
     ("sleeping", "sleeping", 24, 150),   # the nap
-    ("happy", "happy", 16, 70),          # spare
-    ("slack", "slack", 16, 120),         # spare
+    # Spares, in the order the reference sheet lists its "more expressions":
+    # the first of those four is happy, which is already above.
+    ("happy", "happy", 16, 70),
+    ("slack", "slack", 16, 120),
+    ("grin", "grin", 16, 70),
+    ("shine", "shine", 16, 90),
+    ("blank", "blank", 24, 140),
 ]
 
 
@@ -352,6 +397,23 @@ def pose_slack(i, n):
             "glint": i if i < 3 else None}
 
 
+def pose_grin(i, n):
+    # The mouth opens at the top of the hop, which is the whole animation.
+    hop = (0, 1, 2, 2, 1, 0, 0, 0)[i % 8]
+    return {"hop": hop, "open": hop == 2}
+
+
+def pose_shine(i, n):
+    # A slow breath under a sparkle that catches the light every sixth frame.
+    return {"squash": (0, 0, 1, 1, 0, 0, 0, 0)[i % 8], "twinkle": (i % 6) < 2}
+
+
+def pose_blank(i, n):
+    # The most patient loop here: one breath and one blink in three and a half
+    # seconds, which is what "no expression at all" has to look like.
+    return {"squash": (0, 0, 1, 1, 0, 0)[i % 6], "blink": i in (19, 20)}
+
+
 POSE = {
     "standby": pose_standby,
     "thinking": pose_thinking,
@@ -361,6 +423,9 @@ POSE = {
     "sleeping": pose_sleeping,
     "happy": pose_happy,
     "slack": pose_slack,
+    "grin": pose_grin,
+    "shine": pose_shine,
+    "blank": pose_blank,
 }
 
 
@@ -552,7 +617,8 @@ def pack(gif_dir, out_dir, prefix):
     cmd = [sys.executable, MKTHEME, gif_dir, "-o", out_dir, "--prefix", prefix,
            "--no-upscale", "--budget", "2400",
            "--map", "idle=standby", "--map", "working=coding",
-           "--map", "done=done", "--spares", "happy,slack"]
+           "--map", "done=done",
+           "--spares", "happy,slack,grin,shine,blank"]
     print(f"\n$ {' '.join(cmd[1:])}")
     return subprocess.call(cmd)
 

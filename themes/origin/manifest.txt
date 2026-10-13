@@ -29,3 +29,6 @@ sleep=origin-sleeping.caf
 
 spare-happy=origin-happy.caf
 spare-slack=origin-slack.caf
+spare-grin=origin-grin.caf
+spare-shine=origin-shine.caf
+spare-blank=origin-blank.caf

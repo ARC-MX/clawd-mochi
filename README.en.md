@@ -356,12 +356,15 @@ that is where the pet spends nearly all of its time):
 | --- | --- | --- | --- | --- | --- |
 | `idle` | standby (two bars, blinks) | `origin-standby.caf` | 24 | 2.9 s | 45 KB |
 | `thinking` | thinking (square eyes, blush, gaze wandering) | `origin-thinking.caf` | 16 | 1.6 s | 31 KB |
-| `working` | working (`</>` over a scrolling line of code) | `origin-coding.caf` | 20 | 1.6 s | 46 KB |
+| `working` | working (`</>` over a scrolling line of code) | `origin-coding.caf` | 20 | 1.6 s | 50 KB |
 | `done` | done (sparkle eyes, blush, a little hop) | `origin-done.caf` | 16 | 1.3 s | 33 KB |
 | `error` | error (X eyes, a frown, a whole-body flinch) | `origin-error.caf` | 12 | 1.1 s | 26 KB |
 | `sleep` | napping (eyes shut, z rising) | `origin-sleeping.caf` | 24 | 3.6 s | 46 KB |
 | `spare-happy` | happy (`^^` eyes, blush, a smile) | `origin-happy.caf` | 16 | 1.1 s | 33 KB |
-| `spare-slack` | slacking off (sunglasses, a glint crossing them) | `origin-slack.caf` | 16 | 1.9 s | 31 KB |
+| `spare-slack` | slacking off (sunglasses, a glint crossing them) | `origin-slack.caf` | 16 | 1.9 s | 30 KB |
+| `spare-grin` | laughing (eyes shut `◡◡`, a mouth that opens mid-hop) | `origin-grin.caf` | 16 | 1.1 s | 33 KB |
+| `spare-shine` | shining (diamond sparkles for eyes, blush) | `origin-shine.caf` | 16 | 1.4 s | 36 KB |
+| `spare-blank` | blank (two dots and a flat mouth) | `origin-blank.caf` | 24 | 3.4 s | 43 KB |
 
 <table>
   <tr>
@@ -380,18 +383,25 @@ that is where the pet spends nearly all of its time):
   <tr>
     <td align="center"><img src="pics/origin/spare-happy.gif" width="130"><br><code>spare-happy</code></td>
     <td align="center"><img src="pics/origin/spare-slack.gif" width="130"><br><code>spare-slack</code></td>
+    <td align="center"><img src="pics/origin/spare-grin.gif" width="130"><br><code>spare-grin</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="pics/origin/spare-shine.gif" width="130"><br><code>spare-shine</code></td>
+    <td align="center"><img src="pics/origin/spare-blank.gif" width="130"><br><code>spare-blank</code></td>
   </tr>
 </table>
 
-The reference art has six faces, so two of these are mine: `error` is drawn in
-the same palette and pixel style (X eyes and a frown), and `sleep` is the
-standby face asleep (eyes shut, a z rising). The set is drawn against a **cream**
+The reference art has six faces, so the rest are mine: `error` is drawn in the
+same palette and pixel style (X eyes and a frown), `sleep` is the standby face
+asleep (eyes shut, a z rising), and `grin` / `shine` / `blank` come from the
+"more expressions" strip along the bottom of the reference — whose first face,
+the smiling one, is the `happy` above. The set is drawn against a **cream**
 background — the background is a runtime setting, so set Pet BG to `#FDF0DD` in
 the web UI for the reference look, or send `bg#FDF0DD` over serial or BLE,
 which stores it in NVS.
 
-Installing it costs 296 KB, which leaves 1.7 MB of the partition free — part of
-the point of a second pack.
+Installing it costs 408 KB, which leaves about 2.0 MB of the partition free —
+part of the point of a second pack.
 
 Regenerate the art, build the pack, look at it:
 
