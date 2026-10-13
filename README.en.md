@@ -216,8 +216,9 @@ to still has a face. The six spare animations are not in there: all twelve come
 to 384 KB compressed and the app partition has 240 KB of room. How that works is
 in [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md).
 
-There are two packs to choose from — the crab (`clawd`, 12 states) and the orange
-cube pet (`origin`, 11) — and [`themes/`](themes/README.en.md) is the index: every
+There are four packs to choose from — the crab (`clawd`, 12 states), the orange
+cube pet (`origin`, 11), the calico cat (`calico`, 10) and the cloud
+(`cloudling`, 10) — and [`themes/`](themes/README.en.md) is the index: every
 state as a preview clip, what is in each zip, how to rebuild and install one.
 
 Budget the waiting time for the partition's own pace: littlefs writes in 128-byte

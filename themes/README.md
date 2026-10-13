@@ -15,6 +15,8 @@ themes/<名字>.zip       # 打包给设备的那一个文件（tools/mochi_them
 | --- | --- | --- | --- | --- |
 | [`clawd.zip`](clawd.zip) | 12 | 2054 KB | 384 KB | 上游贴图集里的螃蟹，出厂外观 |
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | 橙色方块宠，素材是用代码画出来的 |
+| [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | 三花猫（上游 `calico`） |
+| [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | 云朵（上游 `cloudling`） |
 
 ---
 
@@ -94,13 +96,94 @@ python3 tools/mochi_theme.py bundle themes/origin -o themes/origin.zip
 python3 tools/mochi_theme.py preview themes/origin -o /tmp/origin.png --bg '#FDF0DD'
 ```
 
+## `calico` —— 三花猫（10 个状态）
+
+上游桌面版 clawd-on-desk 的三个角色之一（它自己的 `themes/calico`），贴图集在仓库外的 `../stickers/128/calico`。坐着发呆、思考时爪子托腮、工作时趴在键盘上、完成时举手撒花、出错时躺倒（XX 眼 + 创可贴）、睡觉时侧躺翻肚皮；四个备用素材是玩球、冒感叹号、扫地、叼鱼。
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/calico/idle.gif" width="200"><br><code>idle</code> 发呆</td>
+    <td align="center"><img src="../pics/calico/thinking.gif" width="200"><br><code>thinking</code> 思考</td>
+    <td align="center"><img src="../pics/calico/working.gif" width="200"><br><code>working</code> 敲键盘</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="../pics/calico/done.gif" width="200"><br><code>done</code> 撒花</td>
+    <td align="center"><img src="../pics/calico/error.gif" width="200"><br><code>error</code> 躺倒</td>
+    <td align="center"><img src="../pics/calico/sleep.gif" width="200"><br><code>sleep</code> 翻肚皮</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/calico/spare-juggling.gif" width="130"><br><code>spare-juggling</code> 玩球</td>
+    <td align="center"><img src="../pics/calico/spare-notification.gif" width="130"><br><code>spare-notification</code> 提醒</td>
+    <td align="center"><img src="../pics/calico/spare-sweeping.gif" width="130"><br><code>spare-sweeping</code> 扫地</td>
+    <td align="center"><img src="../pics/calico/spare-carrying.gif" width="130"><br><code>spare-carrying</code> 叼鱼</td>
+  </tr>
+</table>
+
+```bash
+python3 tools/mktheme.py ../stickers/128/calico -o themes/calico \
+        --scale 2 --no-upscale --spares juggling,notification,sweeping,carrying
+python3 tools/recenter_pack.py themes/calico
+python3 tools/mochi_theme.py bundle themes/calico -o themes/calico.zip
+python3 tools/theme_gifs.py themes/calico pics/calico
+```
+
+## `cloudling` —— 云朵（10 个状态）
+
+同一套里的云朵。它**没有 `-happy`**，所以 `done` 按上游的做法指向 `attention`（云被点亮一下）。发呆时是一小团云、思考时举着放大镜、工作时敲工具、出错时整朵变乌云（XX 眼）、睡觉时戴睡帽；备用素材是抛小球、冒感叹号、扫地、搬东西。
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/cloudling/idle.gif" width="200"><br><code>idle</code> 发呆</td>
+    <td align="center"><img src="../pics/cloudling/thinking.gif" width="200"><br><code>thinking</code> 思考</td>
+    <td align="center"><img src="../pics/cloudling/working.gif" width="200"><br><code>working</code> 干活</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="../pics/cloudling/done.gif" width="200"><br><code>done</code> 点亮</td>
+    <td align="center"><img src="../pics/cloudling/error.gif" width="200"><br><code>error</code> 乌云</td>
+    <td align="center"><img src="../pics/cloudling/sleep.gif" width="200"><br><code>sleep</code> 睡帽</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/cloudling/spare-juggling.gif" width="130"><br><code>spare-juggling</code> 抛球</td>
+    <td align="center"><img src="../pics/cloudling/spare-notification.gif" width="130"><br><code>spare-notification</code> 提醒</td>
+    <td align="center"><img src="../pics/cloudling/spare-sweeping.gif" width="130"><br><code>spare-sweeping</code> 扫地</td>
+    <td align="center"><img src="../pics/cloudling/spare-carrying.gif" width="130"><br><code>spare-carrying</code> 搬东西</td>
+  </tr>
+</table>
+
+它是一团白云，在出厂那层淡薄荷底上对比度很低 —— 上面这些预览是放在浅蓝（`#cfe7f7`）上渲染的，面板上也建议把 Pet BG 调成类似的蓝（网页里选，或串口 `bg#cfe7f7`，存在 NVS 里）。
+
+```bash
+python3 tools/mktheme.py ../stickers/128/cloudling -o themes/cloudling \
+        --scale 2 --no-upscale --map done=attention \
+        --spares juggling,notification,sweeping,carrying
+python3 tools/recenter_pack.py themes/cloudling
+python3 tools/mochi_theme.py bundle themes/cloudling -o themes/cloudling.zip
+python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
+```
+
+## 位置：这两个包为什么要多跑一步 `recenter_pack.py`
+
+转换器把画面居中在**源 GIF 的画布**里，并把那个角当作面板坐标存进包；设备则是按 manifest 的 `scale` **从那个角**放大推送的。素材画布不是面板大小时，两边就对不上：这两套贴图集是 128×128 画布、按 scale 2 播放，照转换器的原样算出的位置会让宠物偏左上（云朵最明显 —— 47×48 的画放大两倍后落在 (40,40)，偏了 33 px；猫偏 13–19 px）。
+
+`tools/recenter_pack.py` 只重写每个 `.caf` 表头里那两个坐标，按"放大后的尺寸在面板上居中"重算 —— 画面内容、调色板、帧数、每帧时长都不动。`clawd` 和 `origin` 不需要这一步：它们的素材本来就画在 240 画布上（`scale=1`），转换器算出来的就是面板坐标。
+
+改用 240 画布那套贴图集（`../stickers/240/...`）配 `scale=1` 本来就能居中，但体积是：calico 六个状态 **2926 KB**（超过 2400 KB 预算，装不下），cloudling 六个状态 1997 KB（装得下，但一个备用素材都放不下）。所以这两个包选择"128 画布 + scale 2 + 居中"。
+
 ## 预览图怎么来的
 
 上面每一张都**不是素材 GIF**，而是从设备真正播放的 `.caf` 逐帧解码、按固件的合成规则渲染出来的（480×480，面板的 2 倍）—— 也就是面板上实际的效果。所以改了包之后要重新跑一次：
 
 ```bash
-python3 tools/theme_gifs.py themes/clawd  pics/states
-python3 tools/theme_gifs.py themes/origin pics/origin '#fdf0dd'
+python3 tools/theme_gifs.py themes/clawd    pics/states
+python3 tools/theme_gifs.py themes/origin   pics/origin '#fdf0dd'
+python3 tools/theme_gifs.py themes/calico   pics/calico
+python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
 ```
 
 它们放在 `pics/` 而不是各自的包目录里：包目录会被整个打进 zip、展开到设备的分区上，多一个文件就是白占存储。

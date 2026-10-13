@@ -21,6 +21,8 @@ previews and notes stay outside it (see the end of each section).
 | --- | --- | --- | --- | --- |
 | [`clawd.zip`](clawd.zip) | 12 | 2054 KB | 384 KB | the crab from the upstream sticker set — the factory look |
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | the orange cube pet, drawn in code |
+| [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | the calico cat (upstream `calico`) |
+| [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | the cloud (upstream `cloudling`) |
 
 ---
 
@@ -111,6 +113,110 @@ python3 tools/mochi_theme.py bundle themes/origin -o themes/origin.zip
 python3 tools/mochi_theme.py preview themes/origin -o /tmp/origin.png --bg '#FDF0DD'
 ```
 
+## `calico` — the calico cat (10 states)
+
+One of the three characters of the upstream desktop clawd-on-desk (its own
+`themes/calico`); the sticker set is `../stickers/128/calico` outside this
+repository. Sitting and staring, a paw to its chin while thinking, flat on the
+keyboard while working, arms up with sparkles when done, flopped over with X eyes
+when something failed, and asleep on its back; the four spares are playing with a
+ball, an alert, sweeping, and carrying a fish.
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/calico/idle.gif" width="200"><br><code>idle</code></td>
+    <td align="center"><img src="../pics/calico/thinking.gif" width="200"><br><code>thinking</code></td>
+    <td align="center"><img src="../pics/calico/working.gif" width="200"><br><code>working</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="../pics/calico/done.gif" width="200"><br><code>done</code></td>
+    <td align="center"><img src="../pics/calico/error.gif" width="200"><br><code>error</code></td>
+    <td align="center"><img src="../pics/calico/sleep.gif" width="200"><br><code>sleep</code></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/calico/spare-juggling.gif" width="130"><br><code>spare-juggling</code></td>
+    <td align="center"><img src="../pics/calico/spare-notification.gif" width="130"><br><code>spare-notification</code></td>
+    <td align="center"><img src="../pics/calico/spare-sweeping.gif" width="130"><br><code>spare-sweeping</code></td>
+    <td align="center"><img src="../pics/calico/spare-carrying.gif" width="130"><br><code>spare-carrying</code></td>
+  </tr>
+</table>
+
+```bash
+python3 tools/mktheme.py ../stickers/128/calico -o themes/calico \
+        --scale 2 --no-upscale --spares juggling,notification,sweeping,carrying
+python3 tools/recenter_pack.py themes/calico
+python3 tools/mochi_theme.py bundle themes/calico -o themes/calico.zip
+python3 tools/theme_gifs.py themes/calico pics/calico
+```
+
+## `cloudling` — the cloud (10 states)
+
+The cloud from the same set. It has **no `-happy`**, so `done` points at
+`attention` the way upstream does (the cloud lights up). A small puff when idle,
+a magnifying glass while thinking, tools while working, a whole storm cloud with
+X eyes when something fails, a nightcap when asleep; the spares are juggling, an
+alert, sweeping and carrying.
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/cloudling/idle.gif" width="200"><br><code>idle</code></td>
+    <td align="center"><img src="../pics/cloudling/thinking.gif" width="200"><br><code>thinking</code></td>
+    <td align="center"><img src="../pics/cloudling/working.gif" width="200"><br><code>working</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="../pics/cloudling/done.gif" width="200"><br><code>done</code></td>
+    <td align="center"><img src="../pics/cloudling/error.gif" width="200"><br><code>error</code></td>
+    <td align="center"><img src="../pics/cloudling/sleep.gif" width="200"><br><code>sleep</code></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/cloudling/spare-juggling.gif" width="130"><br><code>spare-juggling</code></td>
+    <td align="center"><img src="../pics/cloudling/spare-notification.gif" width="130"><br><code>spare-notification</code></td>
+    <td align="center"><img src="../pics/cloudling/spare-sweeping.gif" width="130"><br><code>spare-sweeping</code></td>
+    <td align="center"><img src="../pics/cloudling/spare-carrying.gif" width="130"><br><code>spare-carrying</code></td>
+  </tr>
+</table>
+
+It is a white cloud, which barely reads against the factory pale-mint background —
+the clips above are rendered on a light blue (`#cfe7f7`), and that is worth doing
+on the panel too (Pet BG in the web UI, or `bg#cfe7f7` over serial, which stores
+it in NVS).
+
+```bash
+python3 tools/mktheme.py ../stickers/128/cloudling -o themes/cloudling \
+        --scale 2 --no-upscale --map done=attention \
+        --spares juggling,notification,sweeping,carrying
+python3 tools/recenter_pack.py themes/cloudling
+python3 tools/mochi_theme.py bundle themes/cloudling -o themes/cloudling.zip
+python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
+```
+
+## Placement: why these two packs need `recenter_pack.py`
+
+The converter centres the artwork in the **source GIF's canvas** and stores that
+corner as the frame's panel position; the device then magnifies the art *from
+that corner* by the manifest's `scale`. When the art was drawn on a canvas that
+is not panel-sized the two disagree: these sticker sets are 128×128 and play at
+scale 2, and the position the converter computes puts the pet up and to the left
+(the cloud worst — a 47×48 frame magnified lands at (40,40), 33 px out; the cat
+13–19 px).
+
+`tools/recenter_pack.py` rewrites only those two coordinates per `.caf` —
+`(panel - w*scale) // 2` — leaving the artwork, palette, frame count and timing
+exactly as the converter produced them. `clawd` and `origin` do not need it:
+their art is drawn on a 240 canvas at `scale=1`, so the converter's position *is*
+the panel position.
+
+Using the 240-canvas sets (`../stickers/240/...`) at `scale=1` would centre by
+itself, but costs: calico is **2926 KB** for six states (over the 2400 KB budget —
+it does not fit at all), cloudling is 1997 KB for six (fits, with no room for a
+single spare). That is why these two are 128-canvas at scale 2, recentred.
+
 ## Where the previews come from
 
 Every clip above is **not** the source art: each is decoded frame by frame from
@@ -119,8 +225,10 @@ twice the panel), so it is the effect you actually get. Regenerate after changin
 a pack:
 
 ```bash
-python3 tools/theme_gifs.py themes/clawd  pics/states
-python3 tools/theme_gifs.py themes/origin pics/origin '#fdf0dd'
+python3 tools/theme_gifs.py themes/clawd    pics/states
+python3 tools/theme_gifs.py themes/origin   pics/origin '#fdf0dd'
+python3 tools/theme_gifs.py themes/calico   pics/calico
+python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
 ```
 
 They live in `pics/` rather than beside their packs: a pack directory is zipped
