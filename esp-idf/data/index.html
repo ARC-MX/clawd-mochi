@@ -647,6 +647,13 @@ async function drawPacks() {
 // the one upload here worth a progress bar: a pack is up to a couple of
 // megabytes over the hotspot's own radio.
 //
+// The bar covers the transfer and stops at 100%, which is not the end of the
+// wait — the device then writes what it unpacked to littlefs in 128-byte units,
+// about 78 KB/s, so a 2 MB pack spends another 25 seconds there (the origin pack
+// is 296 KB, about 4) and the reply only comes when that is done. There is no
+// way to ask how far along the writing is, so the page counts seconds instead of
+// leaving a full bar looking like a hang.
+//
 // A failed push is not a lost theme — the device puts its built-in pack back —
 // so the old state is not "still there", it is gone either way. Say which.
 function pushPack(rec) {
@@ -655,14 +662,31 @@ function pushPack(rec) {
   const wrap = document.getElementById('pushWrap');
   wrap.style.display = 'block';
   bar.style.width = '0';
-  st.textContent = 'pushing ' + rec.name + '...';
+  bar.style.background = '#e0863a';
+  st.textContent = 'sending ' + rec.name + '...';
+
+  let ticker = null;
+  const writing = (what) => {
+    if (ticker !== null) return;
+    bar.style.width = '100%';
+    bar.style.background = '#8a8278';
+    let secs = 0;
+    const show = () => { st.textContent = 'writing ' + what + '... ' + secs + 's'; };
+    show();
+    ticker = setInterval(() => { secs += 1; show(); }, 1000);
+  };
+  const stop = () => { if (ticker !== null) clearInterval(ticker); ticker = null; };
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/theme/pack?bytes=' + rec.unpacked);
   xhr.upload.onprogress = e => {
-    if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%';
+    if (!e.lengthComputable) return;
+    const pct = Math.round(e.loaded / e.total * 100);
+    bar.style.width = pct + '%';
+    if (pct >= 100) writing('to the device');
   };
   xhr.onload = async () => {
+    stop();
     wrap.style.display = 'none';
     let j = {};
     try { j = JSON.parse(xhr.responseText); } catch (e) {}
@@ -679,6 +703,7 @@ function pushPack(rec) {
     }
   };
   xhr.onerror = () => {
+    stop();
     wrap.style.display = 'none';
     st.textContent = 'failed';
     toast('push failed: connection dropped', false);
@@ -686,13 +711,26 @@ function pushPack(rec) {
   xhr.send(rec.bytes);
 }
 
-// The built-in pack, for when a pushed one is not what you want. No body.
+// The built-in pack, for when a pushed one is not what you want. No body — the
+// six states are already in the firmware's image — but it still has to be
+// expanded onto the partition, which is the same write at the same pace.
 function pushFactory() {
   const st = document.getElementById('themeSt');
-  st.textContent = 'restoring...';
+  const bar = document.getElementById('pushBar');
+  const wrap = document.getElementById('pushWrap');
+  wrap.style.display = 'block';
+  bar.style.width = '100%';
+  bar.style.background = '#8a8278';
+  let secs = 0;
+  const show = () => { st.textContent = 'restoring the built-in pack... ' + secs + 's'; };
+  show();
+  const ticker = setInterval(() => { secs += 1; show(); }, 1000);
+
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/theme/pack?factory=1');
   xhr.onload = async () => {
+    clearInterval(ticker);
+    wrap.style.display = 'none';
     let j = {};
     try { j = JSON.parse(xhr.responseText); } catch (e) {}
     if (j.ok) {
@@ -706,7 +744,12 @@ function pushFactory() {
       toast('restore failed: ' + (j.e || 'no reply'), false);
     }
   };
-  xhr.onerror = () => { st.textContent = 'failed'; toast('restore failed', false); };
+  xhr.onerror = () => {
+    clearInterval(ticker);
+    wrap.style.display = 'none';
+    st.textContent = 'failed';
+    toast('restore failed', false);
+  };
   xhr.send();
 }
 
