@@ -23,6 +23,7 @@ previews and notes stay outside it (see the end of each section).
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | the orange cube pet, drawn in code |
 | [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | the calico cat (upstream `calico`) |
 | [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | the cloud (upstream `cloudling`) |
+| [`face.zip`](face.zip) | 11 | 311 KB | 7 KB | just the face, bezel to the panel's edge (another shell around `origin`'s) |
 
 ---
 
@@ -217,6 +218,53 @@ itself, but costs: calico is **2926 KB** for six states (over the 2400 KB budget
 it does not fit at all), cloudling is 1997 KB for six (fits, with no room for a
 single spare). That is why these two are 128-canvas at scale 2, recentred.
 
+## `face` — just the face, bezel to the edge (11 states)
+
+The same faces from the same generator (`tools/origin_art.py`) in another shell:
+**no pet, only the screen** — and the screen fills the panel. The black bezel is
+16 px against all four edges, the lit panel 208×208, and the face is drawn on a
+16 px unit grid (twice `origin`'s 8 px, which is what lands it exactly in the 240
+panel). Six hook states and five spares, with faces identical to `origin`'s.
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/face/idle.gif" width="200"><br><code>idle</code></td>
+    <td align="center"><img src="../pics/face/thinking.gif" width="200"><br><code>thinking</code></td>
+    <td align="center"><img src="../pics/face/working.gif" width="200"><br><code>working</code></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="../pics/face/done.gif" width="200"><br><code>done</code></td>
+    <td align="center"><img src="../pics/face/error.gif" width="200"><br><code>error</code></td>
+    <td align="center"><img src="../pics/face/sleep.gif" width="200"><br><code>sleep</code></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/face/spare-happy.gif" width="130"><br><code>spare-happy</code></td>
+    <td align="center"><img src="../pics/face/spare-slack.gif" width="130"><br><code>spare-slack</code></td>
+    <td align="center"><img src="../pics/face/spare-grin.gif" width="130"><br><code>spare-grin</code></td>
+    <td align="center"><img src="../pics/face/spare-shine.gif" width="130"><br><code>spare-shine</code></td>
+    <td align="center"><img src="../pics/face/spare-blank.gif" width="130"><br><code>spare-blank</code></td>
+  </tr>
+</table>
+
+`origin_art.py --shell` decides how much gets drawn: `full` the whole pet (what
+`origin` uses), `frame` the screen with its bezel, `bare` the face alone, and
+`panel` the bezel out to the panel's edges (this one). The faces are identical in
+every shell; only what surrounds them goes away.
+
+```bash
+python3 tools/origin_art.py --shell panel --prefix face --pack themes/face
+python3 tools/mochi_theme.py bundle themes/face -o themes/face.zip
+python3 tools/theme_gifs.py themes/face pics/face
+```
+
+**This pack ignores Pet BG.** Every pixel of every frame is opaque — the `.caf`'s
+field colour does not exist in it — so whatever the background is set to never
+shows. Every other theme wants a background picked for it (`origin` cream,
+`cloudling` light blue); this is the one that does not.
+
 ## Where the previews come from
 
 Every clip above is **not** the source art: each is decoded frame by frame from
@@ -229,6 +277,7 @@ python3 tools/theme_gifs.py themes/clawd    pics/states
 python3 tools/theme_gifs.py themes/origin   pics/origin '#fdf0dd'
 python3 tools/theme_gifs.py themes/calico   pics/calico
 python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
+python3 tools/theme_gifs.py themes/face    pics/face
 ```
 
 They live in `pics/` rather than beside their packs: a pack directory is zipped

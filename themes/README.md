@@ -17,6 +17,7 @@ themes/<名字>.zip       # 打包给设备的那一个文件（tools/mochi_them
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | 橙色方块宠，素材是用代码画出来的 |
 | [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | 三花猫（上游 `calico`） |
 | [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | 云朵（上游 `cloudling`） |
+| [`face.zip`](face.zip) | 11 | 311 KB | 7 KB | 只有表情，整屏黑边（`origin` 那张脸的另一种外壳） |
 
 ---
 
@@ -175,6 +176,43 @@ python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
 
 改用 240 画布那套贴图集（`../stickers/240/...`）配 `scale=1` 本来就能居中，但体积是：calico 六个状态 **2926 KB**（超过 2400 KB 预算，装不下），cloudling 六个状态 1997 KB（装得下，但一个备用素材都放不下）。所以这两个包选择"128 画布 + scale 2 + 居中"。
 
+## `face` —— 只有表情，整屏黑边（11 个状态）
+
+同一套脸、同一个生成器（`tools/origin_art.py`）的另一种外壳：**不要宠物，只要屏幕**，而且屏幕铺满整块面板 —— 黑框 16 px 贴四边、橙色屏 208×208，表情按 16 px 单位格画（`origin` 是 8 px，所以这是它的两倍，正好落在 240 面板里）。六个 hook 状态 + 五个备用，脸与 `origin` 完全一致。
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/face/idle.gif" width="200"><br><code>idle</code> 待机中</td>
+    <td align="center"><img src="../pics/face/thinking.gif" width="200"><br><code>thinking</code> 思考中</td>
+    <td align="center"><img src="../pics/face/working.gif" width="200"><br><code>working</code> 工作中</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="../pics/face/done.gif" width="200"><br><code>done</code> 完成啦</td>
+    <td align="center"><img src="../pics/face/error.gif" width="200"><br><code>error</code> 出错</td>
+    <td align="center"><img src="../pics/face/sleep.gif" width="200"><br><code>sleep</code> 打盹</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="../pics/face/spare-happy.gif" width="130"><br><code>spare-happy</code> 开心</td>
+    <td align="center"><img src="../pics/face/spare-slack.gif" width="130"><br><code>spare-slack</code> 摸鱼中</td>
+    <td align="center"><img src="../pics/face/spare-grin.gif" width="130"><br><code>spare-grin</code> 大笑</td>
+    <td align="center"><img src="../pics/face/spare-shine.gif" width="130"><br><code>spare-shine</code> 闪亮</td>
+    <td align="center"><img src="../pics/face/spare-blank.gif" width="130"><br><code>spare-blank</code> 无语</td>
+  </tr>
+</table>
+
+`origin_art.py --shell` 决定画多少：`full` 整只宠物（`origin` 用的）、`frame` 屏幕带黑框、`bare` 只有脸、`panel` 整屏黑边（这套用的）。脸本身在哪种外壳里都一模一样，只有周围的东西没了。
+
+```bash
+python3 tools/origin_art.py --shell panel --prefix face --pack themes/face
+python3 tools/mochi_theme.py bundle themes/face -o themes/face.zip
+python3 tools/theme_gifs.py themes/face pics/face
+```
+
+**这套不看 Pet BG。** 整块画面都是实体像素，没有一处透明 —— `.caf` 里那个"场地色"在这套里根本不存在，所以背景设成什么都不会显示。别的主题都得挑一个配它的背景（`origin` 要奶油、`cloudling` 要浅蓝），这套是唯一不需要的。
+
 ## 预览图怎么来的
 
 上面每一张都**不是素材 GIF**，而是从设备真正播放的 `.caf` 逐帧解码、按固件的合成规则渲染出来的（480×480，面板的 2 倍）—— 也就是面板上实际的效果。所以改了包之后要重新跑一次：
@@ -184,6 +222,7 @@ python3 tools/theme_gifs.py themes/clawd    pics/states
 python3 tools/theme_gifs.py themes/origin   pics/origin '#fdf0dd'
 python3 tools/theme_gifs.py themes/calico   pics/calico
 python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
+python3 tools/theme_gifs.py themes/face    pics/face
 ```
 
 它们放在 `pics/` 而不是各自的包目录里：包目录会被整个打进 zip、展开到设备的分区上，多一个文件就是白占存储。
