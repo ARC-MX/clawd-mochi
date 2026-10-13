@@ -176,6 +176,8 @@ python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
 
 改用 240 画布那套贴图集（`../stickers/240/...`）配 `scale=1` 本来就能居中，但体积是：calico 六个状态 **2926 KB**（超过 2400 KB 预算，装不下），cloudling 六个状态 1997 KB（装得下，但一个备用素材都放不下）。所以这两个包选择"128 画布 + scale 2 + 居中"。
 
+校验器认得这两种位置：`verify_caf.py` 对这两个包报 `OK ... (recentred)`，对 `clawd`/`origin`/`face` 报普通的 `OK`。`scale=1` 时两种位置本来就重合，所以这条判定不会放过真问题 —— 它区分的是"转换器算的位置"和"放大推送的包该存的位置"，两者只有 `scale>1` 才会分开。
+
 ## `face` —— 只有表情，整屏黑边（11 个状态）
 
 同一套脸、同一个生成器（`tools/origin_art.py`）的另一种外壳：**不要宠物，只要屏幕**，而且屏幕铺满整块面板 —— 黑框 16 px 贴四边、橙色屏 208×208，表情按 16 px 单位格画（`origin` 是 8 px，所以这是它的两倍，正好落在 240 面板里）。六个 hook 状态 + 五个备用，脸与 `origin` 完全一致。

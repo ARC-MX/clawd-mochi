@@ -218,6 +218,12 @@ itself, but costs: calico is **2926 KB** for six states (over the 2400 KB budget
 it does not fit at all), cloudling is 1997 KB for six (fits, with no room for a
 single spare). That is why these two are 128-canvas at scale 2, recentred.
 
+The checker knows both positions: it reports `OK ... (recentred)` for these two
+packs and a plain `OK` for `clawd`, `origin` and `face`. At scale 1 the two
+positions coincide, so this cannot paper over a real problem — what it separates
+is "the position the converter computes" from "the position a pack that asks the
+device to magnify has to store", and only `scale > 1` tells those apart.
+
 ## `face` — just the face, bezel to the edge (11 states)
 
 The same faces from the same generator (`tools/origin_art.py`) in another shell:
