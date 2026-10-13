@@ -180,7 +180,9 @@ themes/clawd.zip            # 打包给设备的那一个文件（tools/mochi_th
 
 设备上**只放得下一个包** —— 2.44 MB 的 LittleFS 分区刚好够装一组约 2 MB 的包，没有余地，所以"换主题"就是替换。装法是把它加进网页 `// theme` 区的主题库再推给设备：整个 `.zip` 一次请求发过去，设备按包里的目录预先核对解压体积，装不下就直接拒绝 —— 拒绝和失败都会把**固件内置的那套**装回去，不会留下一个空主题。`restore built-in` 按钮手动做同一件事。
 
-内置的是 `themes/clawd`（螃蟹，12 个状态），固件把它压缩后烘在 app 分区里（`esp-idf/main/default_pack.zip`），所以设备什么都不推也有一张脸。内置那套的原理见 [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)。
+内置的是 `themes/clawd`（螃蟹）里 Claude Code 驱动的那 **6** 个状态，固件把它压缩后烘在 app 分区里（`esp-idf/main/default_pack.zip`，168 KB），所以设备什么都不推也有一张脸。6 个备用素材不在里面 —— 全 12 个压缩后是 384 KB，而 app 分区只剩 240 KB 的余量。内置那套的原理见 [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md)。
+
+等待时间要按这套分区的性子算：littlefs 的写入粒度是 128 字节，落盘大约 **78 KB/s**，而网页上的进度条只覆盖传输。传完之后才是真正慢的那段 —— 2 MB 的包要再写 **25 秒**左右，`themes/origin`（296 KB）约 4 秒。刚烧完固件的第一次开机同理：设备要先把 892 KB 的内置包写进分区，面板会停在开机画面上约 11 秒。
 
 ### 设备上现有的状态
 

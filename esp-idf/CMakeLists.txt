@@ -6,6 +6,7 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(clawd_mochi)
 
 # Bundle data/ into the "storage" LittleFS partition; `idf.py flash` writes it
-# alongside the bootloader / partition table / app. data/ holds the web UI plus
-# the swappable theme (data/theme/*.caf + manifest.txt).
+# alongside the bootloader / partition table / app. data/ holds the web UI and
+# nothing else: themes are packs uploaded from the page, and the one the firmware
+# carries for a device that has none is embedded in the app — see main/CMakeLists.txt.
 littlefs_create_partition_image(storage ${CMAKE_SOURCE_DIR}/data FLASH_IN_PROJECT)

@@ -7,7 +7,7 @@ the field resolved to the background colour (palette index 0 is transparent, not
 colour) and the per-frame delays the player uses — the clamped ones included.
 
 Usage:
-  theme_gifs.py esp-idf/data/theme pics/states
+  theme_gifs.py themes/clawd pics/states
 
 Writes <out-dir>/<state>.gif at 2x, nearest-neighbour, which is how the firmware
 magnifies and what keeps pixel art crisp in a README. Regenerate after changing a

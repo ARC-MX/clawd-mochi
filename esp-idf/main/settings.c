@@ -175,6 +175,31 @@ bool settingsSetSleepAfter(uint16_t sec) {
   return true;
 }
 
+bool settingsGetThemeFactory(void) {
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+  uint8_t v = 0;
+  const bool found = (nvs_get_u8(h, "factory", &v) == ESP_OK);
+  nvs_close(h);
+  return found && v != 0;
+}
+
+bool settingsSetThemeFactory(bool factory) {
+  if (settingsGetThemeFactory() == factory) return true;   // nothing to do
+
+  nvs_handle_t h;
+  if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+  esp_err_t e = nvs_set_u8(h, "factory", factory ? 1 : 0);
+  if (e == ESP_OK) e = nvs_commit(h);
+  nvs_close(h);
+  if (e != ESP_OK) {
+    ESP_LOGW(TAG, "could not store the theme flag");
+    return false;
+  }
+  ESP_LOGI(TAG, "theme is %s", factory ? "the built-in set" : "an uploaded pack");
+  return true;
+}
+
 bool settingsSave(const char* name, const char* pass, const char** err) {
   const char* n = (name && name[0]) ? name : s_name;
   const char* p = (pass && pass[0]) ? pass : s_pass;

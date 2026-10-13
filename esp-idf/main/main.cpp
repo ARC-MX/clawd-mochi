@@ -24,8 +24,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-#include <dirent.h>
-#include <unistd.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -51,6 +49,7 @@
 #include "esp_littlefs.h"
 #include "ble_cli.h"
 #include "anim.h"
+#include "theme_pack.h"
 
 static const char* TAG = "clawd_mochi";
 
@@ -364,6 +363,11 @@ static void drawBrandText() {
   tft.print(BRAND_TEXT);
 }
 
+// What the caller is doing with a band, which is all the caption rule needs to
+// know: a reveal still has un-revealed rows on one side of the band, a sweep over
+// the finished card has correct pixels on both sides.
+enum BandRole { BAND_REVEAL, BAND_SWEEP };
+
 // Paints the boot artwork for screen rows [y0, y1), clearing the band to the
 // background first.
 //
@@ -374,15 +378,7 @@ static void drawBrandText() {
 //
 // Working a row band at a time keeps this off a 115 KB full-frame buffer, which
 // this board cannot afford — it has no PSRAM.
-//
-// `rowsBeyondAreArtwork` says the rows outside this band already hold the right
-// pixels — true when the band is a repair made while a lip sweeps *down* over a
-// finished card. It only matters for the caption, which is one unclippable glyph
-// run: on the way up it may not go down before the band has reached its top row,
-// or its glyphs would spill into the still-dark rows above the reveal lip; on the
-// way down every row below the band is already painted, so any band that touches
-// the caption can repaint all of it and leave no seam.
-static void drawLogoRows(int16_t y0, int16_t y1, bool rowsBeyondAreArtwork = false) {
+static void drawLogoRows(int16_t y0, int16_t y1, BandRole role) {
   if (y1 <= y0) return;
   tft.fillRect(0, y0, DISP_W, y1 - y0, C_DARKBG);
 
@@ -409,10 +405,14 @@ static void drawLogoRows(int16_t y0, int16_t y1, bool rowsBeyondAreArtwork = fal
                      LOGO_BITMAP + (size_t)(ly0 - LOGO_Y) * LOGO_W);
   }
 
-  // The caption is a single unclippable glyph run, so it goes down whole on the
-  // first band that can carry it — see the note on rowsBeyondAreArtwork above.
+  // The caption is a single unclippable glyph run, so it goes down whole rather
+  // than in rows, and only on a band that can carry it. On a reveal that means
+  // waiting until the band has passed the row the glyphs would otherwise spill
+  // past into the still-unrevealed area — their bottom row, since the reveal now
+  // travels down. A sweep over the finished card has correct pixels on both sides
+  // of the band, so any band touching the caption can repaint all of it.
   if (y0 < BRAND_Y + BRAND_TEXT_H && y1 > BRAND_Y &&
-      (rowsBeyondAreArtwork || y0 <= BRAND_Y)) drawBrandText();
+      (role == BAND_SWEEP || y1 >= BRAND_Y + BRAND_TEXT_H)) drawBrandText();
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -583,9 +583,8 @@ static void termAddChar(char c) {
 // ═════════════════════════════════════════════════════════════
 
 // ── Boot card ─────────────────────────────────────────────────
-// Fixed pacing, not the pet's speed setting: this is a one-shot boot flourish,
-// and tying it to animSpeed made the UI's speed slider look like it controlled
-// the pet when it only ever changed this.
+// Fixed pacing, not a setting: this is a one-shot boot flourish, not the pet's
+// own animation.
 #define BOOT_STEP_MS 24
 #define BOOT_STEPS   30
 
@@ -593,7 +592,7 @@ static void termAddChar(char c) {
 // it only ever travels over dark background, but the return sweep crosses the
 // white card too, where white-on-white would vanish. These two read as a lit edge
 // over the dark surround and as a shadow over the card, so the sweep stays one
-// unbroken line the whole way down.
+// unbroken line the whole way.
 #define LIP_DIM    Display::color565(150, 152, 158)
 #define LIP_SHADOW Display::color565(70, 72, 78)
 
@@ -602,65 +601,71 @@ static float easeInOut(float p) {
   return (p < 0.5f) ? 2.0f * p * p : 1.0f - 2.0f * (1.0f - p) * (1.0f - p);
 }
 
-// Second pass over the same artwork: the lit edge runs back down the finished
-// card, as if the page had settled and the light swept across it once more.
+// Second pass over the same artwork: the lit edge runs back up the finished card,
+// as if the page had settled and the light swept across it once more.
 //
 // Nothing is exposed this time, so this is a repair rather than a reveal — and
 // the panel cannot be read back, so a lip left behind would stay there for good.
 // Each step therefore repaints the band the previous lip is sitting in, which is
-// rows [trail, y) — the pair it covers and no more — and only then lays the new
-// lip below. Total traffic is one more screenful, and unlike clearing the screen
+// rows [y, trail) — the pair it covers and no more — and only then lays the new
+// lip above. Total traffic is one more screenful, and unlike clearing the screen
 // and re-revealing there is no black frame at the turn.
 static void animLogoReturnSweep() {
-  int16_t trail = 0;                    // rows above this still hold the last lip
+  int16_t trail = DISP_H;               // rows below this still hold the last lip
 
   for (int s = 1; s <= BOOT_STEPS; s++) {
-    // Stop two rows short of the bottom so the lip always fits on the panel.
-    int16_t y = (int16_t)(easeInOut((float)s / BOOT_STEPS) * (DISP_H - 2) + 0.5f);
-    if (y < trail + 2) continue;        // sub-pixel step, nothing to repaint
+    // Stop two rows short of the top so the lip always fits on the panel.
+    int16_t y = (int16_t)((DISP_H - 2) -
+                          easeInOut((float)s / BOOT_STEPS) * (DISP_H - 2) + 0.5f);
+    if (y > trail - 2) continue;        // sub-pixel step, nothing to repaint
 
-    drawLogoRows(trail, y, true);       // also erases the previous lip
-    tft.fillRect(0, y, DISP_W, 1, LIP_DIM);
-    tft.fillRect(0, y + 1, DISP_W, 1, LIP_SHADOW);
+    drawLogoRows(y, trail, BAND_SWEEP); // also erases the previous lip
+    if (y > 0) {
+      // Guard the second fill as well: fillArea does not clip, and the last
+      // bands are narrower than the lip.
+      tft.fillRect(0, y - 1, DISP_W, 1, LIP_DIM);
+      if (y - 2 >= 0) tft.fillRect(0, y - 2, DISP_W, 1, LIP_SHADOW);
+    }
     trail = y;
     delayMs(BOOT_STEP_MS);
   }
 
-  drawLogoRows(trail, DISP_H, true);    // run the last lip off the bottom edge
+  drawLogoRows(0, trail, BAND_SWEEP);   // run the last lip off the top edge
 }
 
-// Boot animation: the artwork rolls up from the bottom edge, its leading edge
+// Boot animation: the artwork rolls down from the top edge, its leading edge
 // catching the light like the lip of a turning page.
 //
 // A page-flip is a wipe, not a fade, so this needs no per-pixel blending — just
-// a reveal line sweeping bottom to top. Each step paints the newly exposed band
+// a reveal line sweeping top to bottom. Each step paints the newly exposed band
 // and lays a lit lip along the new edge; the next band paints over that lip, so
 // the total SPI traffic stays near one screenful.
 static void animLogoReveal() {
   busy = true;
   tft.fillScreen(C_DARKBG);
 
-  int16_t cursor = DISP_H;              // content is painted from cursor down
+  int16_t cursor = 0;                   // content is painted from cursor up
 
   for (int s = 1; s <= BOOT_STEPS; s++) {
-    int16_t y = (int16_t)(DISP_H - easeInOut((float)s / BOOT_STEPS) * DISP_H + 0.5f);
-    if (y >= cursor) continue;          // sub-pixel step, nothing new to expose
+    int16_t y = (int16_t)(easeInOut((float)s / BOOT_STEPS) * DISP_H + 0.5f);
+    if (y <= cursor) continue;          // sub-pixel step, nothing new to expose
 
-    drawLogoRows(y, cursor);            // also repaints the previous lip
-    if (y > 0) {
-      // Only when the topmost row is reached does the lip's second row fall off
-      // the panel — fillArea does not clip, so guard it here.
-      tft.fillRect(0, y, DISP_W, 1, C_WHITE);
-      if (y + 1 < DISP_H) tft.fillRect(0, y + 1, DISP_W, 1, LIP_DIM);
-      cursor = (int16_t)(y + 2 > DISP_H ? DISP_H : y + 2);
+    drawLogoRows(cursor, y, BAND_REVEAL);   // also repaints the previous lip
+    if (y < DISP_H) {
+      // The lip rides the last two rows painted, the lit row at the leading edge.
+      // Both fills are guarded: fillArea does not clip, and the first bands are
+      // narrower than the lip.
+      tft.fillRect(0, y - 1, DISP_W, 1, C_WHITE);
+      if (y - 2 >= 0) tft.fillRect(0, y - 2, DISP_W, 1, LIP_DIM);
+      cursor = (int16_t)(y - 2 < 0 ? 0 : y - 2);
     } else {
-      cursor = 0;                       // don't paint a lip over the finished top
+      cursor = DISP_H;                  // don't paint a lip over the finished foot
     }
     delayMs(BOOT_STEP_MS);
   }
 
-  drawLogoRows(0, cursor);              // clear any leftover lip
-  animLogoReturnSweep();                // and run the light back down over it
+  drawLogoRows(cursor, DISP_H, BAND_REVEAL);  // clear any leftover lip
+  animLogoReturnSweep();                // and run the light back up over it
   delayMs(1500);
   busy = false;
 }
@@ -970,164 +975,62 @@ static esp_err_t routeDevice(httpd_req_t* req) {
   return ESP_OK;                       // not reached
 }
 
-// ── Theme replacement ─────────────────────────────────────────
-// Uploading a pack is a three-step replacement — begin, put per file, commit —
-// rather than one request, because the partition cannot hold two themes at
-// once. See routeThemeBegin for why.
-#define THEME_NAME_MAX 64
-#define THEME_PATH_MAX 96
-#define THEME_CHUNK    2048
+// ── Theme pack ────────────────────────────────────────────────
+// The device holds one theme and a pack is most of the partition, so installing
+// one is a replacement rather than a choice between installed themes. The pack
+// arrives as a single request and is expanded over whatever was there — the
+// unpacking, and what a failure leaves behind, live in theme_pack.c.
+#define THEME_NAME_MAX 64      // longest state name, and the pack's name limit
 
-// Frees the partition before an upload starts.
+// Pulls the request body for theme_pack.c. A short read is an error rather than
+// an end: what says a transfer finished is the pack's own end-of-archive marker,
+// which a client that vanished mid-upload never reaches.
+static int httpPackRead(void* ctx, void* buf, size_t len) {
+  const int got = httpd_req_recv((httpd_req_t*)ctx, (char*)buf, len);
+  if (got == HTTPD_SOCK_ERR_TIMEOUT) return -1;
+  return got;              // > 0 bytes read, 0 the client has stopped, < 0 error
+}
+
+// POST /theme/pack?bytes=<unpacked size>[&factory=1] — the body is the pack.
 //
-// This step exists because the two themes cannot coexist: clawd's pack alone
-// leaves ~380 KB of the 2.44 MB partition free, which is less than any pack
-// worth installing. Staging the new theme beside the old one — the obvious way
-// to make the swap atomic — is simply not possible here, so the old animations
-// are dropped first and the manifest is written last. That leaves the manifest
-// pointing at files that are gone for the duration of the upload; the player is
-// stopped here so it does not spend the transfer logging that.
-static esp_err_t routeThemeBegin(httpd_req_t* req) {
+// One request, not a step per file: the device unpacks the ZIP itself, which
+// keeps every browser in play (there is no client-side unzip and no second
+// implementation of the format to keep in step) and makes an install one outcome
+// instead of a sequence of them.
+static esp_err_t routeThemePack(httpd_req_t* req) {
   noteActivity();
-  animPlayState("");         // stop the player while its files are missing
+  animPlayState("");        // stop the player while its files are missing
 
-  unsigned freed = 0;
-  DIR* dir = opendir(ANIM_THEME_DIR);
-  if (dir) {
-    struct dirent* de;
-    char victim[THEME_PATH_MAX];
-    while ((de = readdir(dir)) != nullptr) {
-      const char* n = de->d_name;
-      if (n[0] == '.' || strcmp(n, "manifest.txt") == 0) continue;
-      if (strlen(n) >= THEME_NAME_MAX) continue;
-      snprintf(victim, THEME_PATH_MAX, "%s/%.*s", ANIM_THEME_DIR,
-               THEME_NAME_MAX - 1, n);
-      if (unlink(victim) == 0) freed++;
-    }
-    closedir(dir);
-  }
-  ESP_LOGI(TAG, "theme: cleared %u file(s) for a new upload", freed);
+  char arg[16];
+  const bool wantFactory =
+      getQueryArg(req, "factory", arg, sizeof(arg)) && arg[0] == '1';
+  long declared = -1;       // what the pack says it expands to, when it says
+  if (getQueryArg(req, "bytes", arg, sizeof(arg))) declared = strtol(arg, nullptr, 10);
 
-  char j[48];
-  snprintf(j, sizeof(j), "{\"ok\":1,\"cleared\":%u}", freed);
-  sendJson(req, j);
-  return ESP_OK;
-}
-
-// ── Theme upload ──────────────────────────────────────────────
-// The partition holds exactly one theme, so "switching" is replacement rather
-// than a choice among installed themes — there is no room for a second, let
-// alone a staging copy to build beside the current one. The pack is posted one
-// file at a time and the manifest goes last: until it lands, the old mapping is
-// still in force, which is as close to an atomic swap as a full partition
-// allows. A failure partway leaves a half-written theme, so the commit step is
-// separate and explicit.
-static esp_err_t routeThemePut(httpd_req_t* req) {
-  noteActivity();
-  char name[THEME_NAME_MAX] = {0};
-  if (!getQueryArg(req, "name", name, sizeof(name)) || name[0] == 0) {
-    sendJson(req, "{\"e\":\"name\"}");
-    return ESP_OK;
-  }
-  // The name becomes a path component and arrives from the network.
-  if (strstr(name, "..") || strchr(name, '/') || strchr(name, '\\')) {
-    ESP_LOGW(TAG, "theme: rejected name '%s'", name);
-    sendJson(req, "{\"e\":\"name\"}");
+  if (wantFactory) {
+    // Nothing to receive: this pack is already in the firmware's own image.
+    const bool ok = themePackInstallDefault();
+    animReloadTheme();
+    sendJson(req, ok ? "{\"ok\":1,\"factory\":true}"
+                     : "{\"e\":\"the built-in pack would not install\"}");
     return ESP_OK;
   }
 
-  char path[THEME_PATH_MAX];
-  snprintf(path, sizeof(path), "%s/%s", ANIM_THEME_DIR, name);
-
-  FILE* fd = fopen(path, "wb");
-  if (!fd) {
-    ESP_LOGE(TAG, "theme: cannot write %s", path);
-    sendJson(req, "{\"e\":\"open\"}");
-    return ESP_OK;
-  }
-
-  char* buf = (char*)malloc(THEME_CHUNK);
-  if (!buf) {
-    fclose(fd);
-    sendJson(req, "{\"e\":\"mem\"}");
-    return ESP_OK;
-  }
-
-  int left = req->content_len;
-  while (left > 0) {
-    int want = left > THEME_CHUNK ? THEME_CHUNK : left;
-    int got = httpd_req_recv(req, buf, want);
-    if (got <= 0) break;
-    if (fwrite(buf, 1, (size_t)got, fd) != (size_t)got) break;
-    left -= got;
-  }
-  free(buf);
-  fclose(fd);
-
-  if (left > 0) {
-    ESP_LOGE(TAG, "theme: %s truncated, %d byte(s) missing", name, left);
-    sendJson(req, "{\"e\":\"short\"}");
-    return ESP_OK;
-  }
-  ESP_LOGI(TAG, "theme: wrote %s (%d bytes)", name, req->content_len);
-  sendJson(req, "{\"ok\":1}");
-  return ESP_OK;
-}
-
-// Drops animations the new manifest does not reference, then restarts the
-// player. Without the sweep the previous set's files would still be occupying
-// the partition — and there is no room for both.
-static esp_err_t routeThemeCommit(httpd_req_t* req) {
-  noteActivity();
-
-  char manifest[2048];
-  size_t mLen = 0;
-  FILE* mf = fopen(ANIM_MANIFEST, "r");
-  if (mf) {
-    mLen = fread(manifest, 1, sizeof(manifest) - 1, mf);
-    fclose(mf);
-  }
-  manifest[mLen] = 0;
-
-  // Collect first, delete after: unlinking while a directory is being walked
-  // is asking for trouble on a filesystem this small.
-  char doomed[16][THEME_PATH_MAX];
-  unsigned nDoomed = 0;
-
-  if (mLen > 0) {
-    DIR* dir = opendir(ANIM_THEME_DIR);
-    if (dir) {
-      struct dirent* de;
-      while ((de = readdir(dir)) != nullptr && nDoomed < 16) {
-        const char* n = de->d_name;
-        if (n[0] == '.' || strcmp(n, "manifest.txt") == 0) continue;
-        // d_name is 255 bytes wide; nothing a theme ships is anywhere near
-        // that, and the length check keeps the path snprintf below provably
-        // in bounds.
-        if (strlen(n) >= THEME_NAME_MAX) continue;
-        // A substring test can only under-delete, never over-delete: a name
-        // that IS referenced always matches itself. Worst case a stale file
-        // survives and wastes space, which is the benign direction.
-        if (strstr(manifest, n) == nullptr) {
-          snprintf(doomed[nDoomed], THEME_PATH_MAX, "%s/%.*s",
-                   ANIM_THEME_DIR, THEME_NAME_MAX - 1, n);
-          nDoomed++;
-        }
-      }
-      closedir(dir);
-    }
-  }
-
-  unsigned dropped = 0;
-  for (unsigned i = 0; i < nDoomed; i++) {
-    if (unlink(doomed[i]) == 0) dropped++;
-  }
-
+  const ThemePackSource src = {httpPackRead, req};
+  const ThemePackResult res = themePackInstall(&src, declared);
+  if (res.ok) settingsSetThemeFactory(false);
+  // A refused pack leaves the partition with no manifest at all, so the built-in
+  // set goes straight back on: a download that went wrong should not leave the
+  // pet dark, and the next boot would do this anyway.
+  else themePackInstallDefault();
   animReloadTheme();
-  ESP_LOGI(TAG, "theme: committed (%u stale file(s) dropped)", dropped);
 
-  char j[48];
-  snprintf(j, sizeof(j), "{\"ok\":1,\"dropped\":%u}", dropped);
+  char j[96];
+  if (res.ok)
+    snprintf(j, sizeof(j), "{\"ok\":1,\"files\":%u,\"bytes\":%u}",
+             res.files, res.bytes);
+  else
+    snprintf(j, sizeof(j), "{\"e\":\"%s\"}", res.err);
   sendJson(req, j);
   return ESP_OK;
 }
@@ -1157,17 +1060,21 @@ static esp_err_t routeState(httpd_req_t* req) {
   animListStates(states, sizeof(states));
   // 512: the state list is the bulk of it, plus the identity strings — the name
   // and password are validated at the door to exclude quotes and backslashes, so
-  // they go into the JSON verbatim.
-  char j[512];
+  // they go into the JSON verbatim. `factory` says the theme is the one built
+  // into the firmware, so the page can tell you that what you are looking at is
+  // not something you installed.
+  char j[560];
   snprintf(j, sizeof(j),
            "{\"view\":%u,\"busy\":%s,\"term\":%s,\"bl\":%s,\"blv\":%u,"
-           "\"bg\":\"%s\",\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\"}",
+           "\"bg\":\"%s\",\"states\":\"%s\",\"name\":\"%s\",\"pass\":\"%s\","
+           "\"factory\":%s}",
            currentView,
            busy ? "true" : "false",
            termMode ? "true" : "false",
            backlightOn ? "true" : "false",
            (unsigned)blLevel,
-           bg, states, settingsName(), settingsPass());
+           bg, states, settingsName(), settingsPass(),
+           settingsGetThemeFactory() ? "true" : "false");
   sendJson(req, j);
   return ESP_OK;
 }
@@ -1240,17 +1147,22 @@ static void wifiInitSoftAP() {
 
 static void startWebServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  // 13 routes are registered below; keep a little headroom. The upload routes
-  // also need a bigger stack than 4 KB while writing to LittleFS.
+  // 11 routes are registered below; keep a little headroom.
   config.max_uri_handlers = 20;
   // A canvas stroke is one query string, and a finger's scribble generates a
   // point per pointer event — half a second of drawing already passed the 512-byte
   // default, and the server rejected it before the handler ever saw it. 2 KB is
   // about 250 points, i.e. several seconds of continuous drawing.
   config.max_uri_len     = 2048;
-  config.stack_size       = 8192;
+  // 12 KB rather than the 4 KB default: a theme pack is unpacked on this task,
+  // and tinfl's decompressor is one large coroutine.
+  config.stack_size        = 12288;
   config.recv_wait_timeout = 30;    // a 2 MB pack over WiFi is not fast
   config.send_wait_timeout = 30;
+  // Reclaim the socket of a client that walked away mid-upload. Seven are
+  // available and the AP takes four connections, so leaking one per abandoned
+  // upload ends with a server that answers nobody.
+  config.lru_purge_enable = true;
   config.uri_match_fn = httpd_uri_match_wildcard;
 
   if (httpd_start(&server, &config) != ESP_OK) {
@@ -1273,16 +1185,12 @@ static void startWebServer() {
   r.uri = "/state";       r.handler = routeState;      httpd_register_uri_handler(server, &r);
   r.uri = "/theme/state"; r.handler = routeThemeState; httpd_register_uri_handler(server, &r);
 
-  // Posts with a body, so they cannot share the GET handlers above: the theme
-  // upload streams file bytes, and /device writes flash and reboots the device.
+  // Posts with a body, so they cannot share the GET handlers above: a theme pack
+  // arrives whole in one request, and /device writes flash and reboots the device.
   r.method = HTTP_POST;
   r.uri = "/device";       r.handler = routeDevice;
   httpd_register_uri_handler(server, &r);
-  r.uri = "/theme/begin";  r.handler = routeThemeBegin;
-  httpd_register_uri_handler(server, &r);
-  r.uri = "/theme/put";    r.handler = routeThemePut;
-  httpd_register_uri_handler(server, &r);
-  r.uri = "/theme/commit"; r.handler = routeThemeCommit;
+  r.uri = "/theme/pack";   r.handler = routeThemePack;
   httpd_register_uri_handler(server, &r);
 
   httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, routeNotFound);
@@ -1860,7 +1768,30 @@ extern "C" void app_main() {
   tft.setTextSize(1);
   tft.setCursor(12, 146);
   tft.print("press any button to start");
+#endif
 
+  // The theme is a pack now, uploaded from the web page, so a device that has
+  // just been flashed has none — the storage image carries the web UI and
+  // nothing else. Put back the one the firmware itself carries, and do it here:
+  // after the boot flourish and the AP's details have been shown, but before
+  // the server that could be asked for a theme and before the player goes
+  // looking for one.
+  //
+  // The test is the manifest. Its absence is also what a failed install leaves
+  // behind, so this doubles as the recovery path, and it costs nothing when a
+  // theme is already there. It runs on a task of its own because expanding
+  // 892 KB of animations does not fit app_main's stack — see theme_pack.c.
+  // Writing that much through littlefs takes a good ten seconds on this board,
+  // which is why the AP details go up first.
+  if (!themePackPresent()) {
+    ESP_LOGI(TAG, "no theme on the device; installing the built-in one");
+    themePackInstallDefaultOnTask();
+  }
+
+#if ENABLE_WIFI
+  // After the install: one request at a time is all the partition can take, and
+  // a page that uploaded a pack while the built-in one was being written would
+  // be writing into the same directory.
   startWebServer();
 #endif
 

@@ -48,7 +48,7 @@ def decode(path, w, h):
 
 
 def main():
-    theme = sys.argv[1] if len(sys.argv) > 1 else "esp-idf/data/theme"
+    theme = sys.argv[1] if len(sys.argv) > 1 else "themes/clawd"
     gifs = sys.argv[2] if len(sys.argv) > 2 else "../stickers/240/clawd"
 
     manifest = {}

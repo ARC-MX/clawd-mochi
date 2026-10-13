@@ -57,6 +57,17 @@ bool settingsSetBrightness(uint8_t pct);
 bool settingsGetSleepAfter(uint16_t* sec);
 bool settingsSetSleepAfter(uint16_t sec);
 
+// Whether the theme on the device is the set built into the firmware rather than
+// a pack somebody uploaded. The web UI says which one you are looking at, and an
+// install is what clears the flag — see theme_pack.c.
+//
+// Here rather than as a key in the theme's own manifest, which would be the
+// obvious place to put it: the manifest is a list of states, and everything in
+// it is read back as a state name (animListStates), so a marker there would show
+// up in the UI as an expression that cannot be played.
+bool settingsGetThemeFactory(void);
+bool settingsSetThemeFactory(bool factory);
+
 // True when the given name/password would be accepted.
 bool settingsNameValid(const char* name);
 bool settingsPassValid(const char* pass);

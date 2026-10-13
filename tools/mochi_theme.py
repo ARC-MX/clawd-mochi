@@ -6,6 +6,7 @@ you had to know to run in the right order:
 
   convert   a GIF (or a directory of them) into the device's .caf format
   pack      a sticker set into a theme directory the device can hold
+  bundle    a theme directory into the one .zip the device loads
   verify    that a .caf replays to exactly the frames it was built from
   preview   render what the panel will actually show
 
@@ -23,15 +24,18 @@ It composites the way anim.cpp does, so the image is what the panel shows:
 
 Usage:
   mochi_theme.py pack ../stickers/128/calico -o /tmp/calico --scale 2 --no-upscale
+  mochi_theme.py bundle /tmp/calico -o /tmp/calico.zip
   mochi_theme.py preview /tmp/calico -o /tmp/calico.png
   mochi_theme.py preview /tmp/calico -o /tmp/calico.png --bg '#e8f2ee' --cols 3
 """
 
 import argparse
+import io
 import os
 import struct
 import subprocess
 import sys
+import zipfile
 
 from PIL import Image, ImageDraw
 
@@ -169,6 +173,126 @@ def preview(theme_dir, out_path, bg="#e8f2ee", cols=3, cell=200):
     print(f"wrote {out_path}")
 
 
+# ── bundling ──────────────────────────────────────────────────
+# A pack is a plain ZIP of flat entries — manifest.txt plus the .caf files it
+# names. The device unpacks it straight into the LittleFS partition with the
+# miniz that ships in its mask ROM, so the format has to be one a ZIP reader
+# would recognise and nothing more exotic than that.
+#
+# Two sizes matter here and they are nothing like each other: the packed size is
+# what travels (and, for the pack the firmware embeds in its own image, what has
+# to fit in the app partition), the unpacked size is what has to fit on the
+# device. Both get printed, because a pack that cannot be installed is much
+# cheaper to reject here than after a two-megabyte upload.
+
+PARTITION_KB = 2400      # the storage partition's working budget, as mktheme.py
+APP_SLACK_KB = 240       # spare room in the app partition for an embedded pack
+
+# Fixed timestamps: a pack committed to the repository should change when its
+# contents change and at no other time, which also lets --check be a byte
+# comparison rather than a re-derivation.
+ZIP_STAMP = (1980, 1, 1, 0, 0, 0)
+
+
+def pack_entries(theme_dir, only=None):
+    """-> [(name, bytes)], the manifest first and states in the manifest's order.
+
+    `only` keeps a subset of the states. That is how the firmware's embedded
+    pack is built: it has to fit in the app partition, so it carries the states
+    the hooks drive and not the spare art.
+    """
+    states, _ = read_manifest(theme_dir)
+    if not states:
+        sys.exit(f"error: {os.path.join(theme_dir, 'manifest.txt')} has no states")
+    if only is not None:
+        missing = [s for s in only if s not in dict(states)]
+        if missing:
+            sys.exit(f"error: {theme_dir} has no state(s): {', '.join(missing)}")
+    states = [(s, c) for s, c in states if only is None or s in only]
+
+    # The pack's manifest is the theme's own file with the state lines trimmed.
+    # Comments, `scale=` and the wording ride along, so what the device holds
+    # reads exactly like the directory it was built from.
+    keep = dict(states)
+    with open(os.path.join(theme_dir, "manifest.txt")) as fh:
+        lines = []
+        for line in fh:
+            bare = line.split("#", 1)[0].strip()
+            key = bare.split("=", 1)[0].strip() if "=" in bare else ""
+            if key and key != "scale" and key not in keep:
+                continue
+            lines.append(line.rstrip("\n"))
+    if only is not None:
+        # The source's prose mentions art this pack does not carry, so say so
+        # rather than leave a reader of the pack's manifest misled.
+        lines.insert(0, "# This pack carries only the states below — no spare art.")
+    entries = [("manifest.txt", ("\n".join(lines).rstrip("\n") + "\n").encode())]
+
+    # Two states pointing at the same art would otherwise be two entries with one
+    # name, which a ZIP reader is entitled to treat as corruption.
+    for caf in dict.fromkeys(c for _, c in states):
+        with open(os.path.join(theme_dir, caf), "rb") as fh:
+            entries.append((caf, fh.read()))
+    return entries, [s for s, _ in states]
+
+
+def write_zip(entries):
+    """-> the pack's bytes. Seeking output keeps the sizes in the local headers,
+    which is what the device's reader needs to stream an entry at a time."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for name, data in entries:
+            info = zipfile.ZipInfo(name, ZIP_STAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            z.writestr(info, data)
+    return buf.getvalue()
+
+
+def bundle(theme_dir, out, only=None, budget=PARTITION_KB, flash_budget=None,
+           check=False):
+    theme_dir = theme_dir.rstrip("/")
+    entries, states = pack_entries(theme_dir, only)
+    blob = write_zip(entries)
+    packed = len(blob) / 1024
+    unpacked = sum(len(d) for _, d in entries) / 1024
+
+    if check:
+        try:
+            with open(out, "rb") as fh:
+                have = fh.read()
+        except FileNotFoundError:
+            sys.exit(f"error: {out} does not exist — build it first")
+        if have == blob:
+            print(f"{out} is up to date: {len(states)} state(s), "
+                  f"packed {packed:.0f} KB, unpacks to {unpacked:.0f} KB")
+            return 0
+        sys.exit(f"{out} is out of date — rebuild it with the same arguments")
+
+    with open(out, "wb") as fh:
+        fh.write(blob)
+
+    print(f"{theme_dir} -> {out}")
+    print(f"  {len(entries)} file(s), {len(states)} state(s): {' '.join(states)}")
+    print(f"  packed {packed:.0f} KB, unpacks to {unpacked:.0f} KB")
+
+    ok = True
+    ok &= report_fit("storage partition", unpacked, budget)
+    if flash_budget is not None:
+        ok &= report_fit("app partition", packed, flash_budget)
+    return 0 if ok else 1
+
+
+def report_fit(what, size_kb, budget_kb):
+    left = budget_kb - size_kb
+    if left < 0:
+        print(f"  *** DOES NOT FIT in the {what}: {size_kb:.0f} KB over a "
+              f"{budget_kb} KB budget")
+        return False
+    print(f"  fits the {what}: {budget_kb} KB budget, {left:.0f} KB to spare")
+    return True
+
+
 # ── dispatch ──────────────────────────────────────────────────
 
 def run(script, argv):
@@ -191,6 +315,21 @@ def main():
     p = sub.add_parser("verify", help="check a .caf replays losslessly")
     p.add_argument("rest", nargs=argparse.REMAINDER)
 
+    p = sub.add_parser("bundle", help="theme directory -> the .zip the device loads")
+    p.add_argument("theme", help="theme directory")
+    p.add_argument("-o", "--out", required=True, help=".zip to write")
+    p.add_argument("--only", default=None, metavar="A,B,C",
+                   help="keep only these states (default: all of them)")
+    p.add_argument("--budget", type=int, default=PARTITION_KB,
+                   help=f"unpacked-size budget in KB (default {PARTITION_KB}, "
+                        f"the storage partition)")
+    p.add_argument("--flash-budget", type=int, default=None, metavar="KB",
+                   help="also check the packed size against this, for a pack "
+                        f"the firmware embeds (the app partition leaves about "
+                        f"{APP_SLACK_KB} KB)")
+    p.add_argument("--check", action="store_true",
+                   help="compare against the file at --out instead of writing it")
+
     p = sub.add_parser("preview", help="render what the panel will show")
     p.add_argument("theme", help="theme directory")
     p.add_argument("-o", "--out", required=True, help="PNG to write")
@@ -204,6 +343,10 @@ def main():
     if args.cmd == "preview":
         preview(args.theme, args.out, args.bg, args.cols, args.cell)
         return 0
+    if args.cmd == "bundle":
+        only = [s.strip() for s in args.only.split(",")] if args.only else None
+        return bundle(args.theme, args.out, only, args.budget,
+                      args.flash_budget, args.check)
     script = {"convert": GIF2CAF, "pack": MKTHEME, "verify": VERIFY}[args.cmd]
     return run(script, args.rest)
 
