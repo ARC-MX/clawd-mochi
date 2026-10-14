@@ -40,6 +40,7 @@ static const char* TAG = "anim";
 #define ANIM_PATH_MAX 128    // theme dir + "/" + filename, comfortably
 #define FILE_NAME_MAX 64
 #define BAND_ROWS     8      // rows per panel transfer (matches FILL_PIXELS)
+#define PANEL_W       240    // the panel is square; art is pushed into this buffer
 
 // Pacing comes from the pack, not from a constant here. Each .caf carries a
 // per-frame duration (the converter writes the GIF's own delay, and folds in
@@ -195,7 +196,7 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
                         uint16_t w, uint16_t h, const uint16_t* palette) {
   // streamRect() hands each buffer to the DMA engine and returns immediately,
   // so a buffer must not be reused until its transfer completes — hence several.
-  static uint16_t band[STREAM_BUFS][240 * BAND_ROWS];
+  static uint16_t band[STREAM_BUFS][PANEL_W * BAND_ROWS];
 
   const uint16_t scale = s_scale ? s_scale : 1;
   const uint16_t rowsPerBand = (uint16_t)(BAND_ROWS / scale);
@@ -209,7 +210,7 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
     ESP_LOGW(TAG, "%ux%u at scale %u does not band evenly", w, h, scale);
     return false;
   }
-  if (outW > 240 || bandPixels > 240 * BAND_ROWS) {
+  if (outW > PANEL_W || bandPixels > PANEL_W * BAND_ROWS) {
     ESP_LOGW(TAG, "frame %ux%u at scale %u does not fit the panel", w, h, scale);
     return false;
   }
@@ -396,6 +397,33 @@ static bool playOnce(const char* state, uint32_t gen) {
 
 // ── task ──────────────────────────────────────────────────────
 
+// Whether a state's art covers the whole panel at the scale it plays at. When it
+// does, its first frame erases whatever the previous state left, and the clear
+// the player does on every switch is a blank frame between two animations that
+// nothing needed — which is what a theme whose art *is* the panel (the built-in
+// `face` set) shows as a white flicker. The manifest's scale is what the device
+// magnifies by on push, so it is part of the question: 96x80 art at scale 2 is
+// 192x160 on the panel and still leaves the surround visible.
+static bool stateCoversPanel(const char* state) {
+  char file[FILE_NAME_MAX];
+  if (!manifestLookup(state, file, sizeof(file))) return false;
+
+  char path[ANIM_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/%s", THEME_DIR, file);
+  FILE* fd = fopen(path, "rb");
+  if (!fd) return false;
+  uint8_t head[CAF_HEADER_LEN];
+  const bool got = (fread(head, 1, sizeof(head), fd) == sizeof(head));
+  fclose(fd);
+  if (!got || memcmp(head, "CAF3", 4) != 0) return false;
+
+  const uint16_t x0 = rd16(head + 4), y0 = rd16(head + 6);
+  const uint16_t w = rd16(head + 8), h = rd16(head + 10);
+  const uint16_t scale = s_scale ? s_scale : 1;   // manifestLookup() has just set it
+  return x0 == 0 && y0 == 0 &&
+         (uint32_t)w * scale >= PANEL_W && (uint32_t)h * scale >= PANEL_W;
+}
+
 static void animTask(void* arg) {
   char cur[STATE_MAX];
   char prev[STATE_MAX] = "";        // what is currently on the panel
@@ -413,12 +441,22 @@ static void animTask(void* arg) {
     // outside the new box would otherwise stay on the panel — very visible when
     // going from a large animation to a small one.
     //
+    // ...unless the new state's box is the whole panel, in which case its first
+    // frame does the job and clearing first only puts a blank frame on the
+    // screen: on the built-in `face` set, which is panel-sized art, that is a
+    // visible white flicker between every two states.
+    //
     // Deliberately not done when stopping (empty state): a command like 'd' stops
     // the player and then paints a full-screen view, and clearing here would race
     // that paint. Stopping therefore leaves the last frame up, and any view
     // drawn afterwards repaints the whole panel anyway.
     if (cur[0] != 0 && strcmp(cur, prev) != 0) {
-      tft.fillScreen(s_bg);
+      const bool covers = stateCoversPanel(cur);
+      if (!covers) tft.fillScreen(s_bg);
+      // One line per switch, because how the panel gets from one state to the
+      // next is otherwise invisible without a camera on it.
+      ESP_LOGI(TAG, "switch to %s: %s", cur,
+               covers ? "art covers the panel, no clear" : "cleared first");
     }
     strncpy(prev, cur, sizeof(prev) - 1);
     prev[sizeof(prev) - 1] = 0;
