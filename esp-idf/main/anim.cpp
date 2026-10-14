@@ -79,6 +79,11 @@ static uint16_t          s_bg = 0xFFFF;             // clear colour (theme white
 #define ANIM_SCALE_MAX 4        // must stay a divisor of BAND_ROWS
 static uint16_t          s_scale = 1;
 
+// Called before each band is pushed — see animSetBandCallback(). Not guarded by
+// s_lock: it is a notification about the panel, not about the player's state,
+// and the caller is expected to be quick.
+static animBandFn s_bandCb = nullptr;
+
 #if ANIM_LOG_FPS
 // Playback stats, accumulated across animation loops so short animations are
 // still measured. `render` is the cost of pushing one frame (the number to
@@ -249,6 +254,11 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
     // contiguous stretch of the band buffer.
     while (remaining > 0) {
       if (sr >= bandEndRow) {
+        // The band is built; the caller gets its last say before it goes out,
+        // which is how the transport icon stays in the frame rather than on top
+        // of it.
+        if (s_bandCb)
+          s_bandCb(out, outW, x0, (int)(y0 + bandIdx * BAND_ROWS), BAND_ROWS);
         tft.streamRect(x0, (uint16_t)(y0 + bandIdx * BAND_ROWS),
                        outW, BAND_ROWS, out);
         slot = (slot + 1) % STREAM_BUFS;
@@ -276,6 +286,7 @@ static bool renderFrame(FILE* fd, uint32_t blobOffset, uint16_t x0, uint16_t y0,
 
   // The final band is never closed by the loop above — it is only pushed when
   // the *next* band starts.
+  if (s_bandCb) s_bandCb(out, outW, x0, (int)(y0 + bandIdx * BAND_ROWS), BAND_ROWS);
   tft.streamRect(x0, (uint16_t)(y0 + bandIdx * BAND_ROWS), outW, BAND_ROWS, out);
   tft.streamEnd();
   return true;
@@ -428,6 +439,8 @@ static void animTask(void* arg) {
 }
 
 void animSetBackground(unsigned short colour) { s_bg = (uint16_t)colour; }
+
+void animSetBandCallback(animBandFn fn) { s_bandCb = fn; }
 
 // The theme directory has been replaced underneath us. Nothing about a theme is
 // cached — the manifest is re-read, and the scale with it, on every state

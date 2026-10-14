@@ -209,12 +209,13 @@ refused. A refusal, like a failure, puts the **firmware's built-in pack** back
 rather than leaving an empty theme; the `restore built-in` button does the same
 by hand.
 
-What is built in is `themes/clawd` (the crab) — but only the **six** states Claude
-Code drives, compressed into the app partition as
-`esp-idf/main/default_pack.zip` (168 KB), so a device that has never been pushed
-to still has a face. The six spare animations are not in there: all twelve come
-to 384 KB compressed and the app partition has 240 KB of room. How that works is
-in [CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md).
+What is built in is `themes/face` — the orange cube pet's face, its bezel out to
+the panel's edges, with **all eleven states** in it (the five spares included).
+That comes to **7 KB** compressed and 310 KB expanded, so a device that has never
+been pushed to still has a face. It is that small because the whole panel is flat
+colour: the same eleven states cost 384 KB in `clawd`, which is why that set
+ships with only the six states the hooks drive. How the built-in works is in
+[CLAUDE-CODE-BRIDGE.md](CLAUDE-CODE-BRIDGE.md).
 
 There are five packs to choose from — the crab (`clawd`, 12 states), the orange
 cube pet (`origin`, 11), the calico cat (`calico`, 10), the cloud (`cloudling`,
@@ -226,8 +227,8 @@ Budget the waiting time for the partition's own pace: littlefs writes in 128-byt
 units, about **78 KB/s**, and the progress bar in the web UI only covers the
 transfer. The slow part comes after it — a 2 MB pack is another **25 seconds** of
 writing, `themes/origin` (296 KB) about 4. The first boot after a flash is the
-same story: the device writes the 892 KB built-in pack first, and the panel sits
-on the boot card for about 11 seconds.
+same story: the device writes the 310 KB built-in pack first, and the panel sits
+on the boot card for about 5 seconds.
 
 ### The states this theme provides
 

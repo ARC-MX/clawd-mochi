@@ -70,19 +70,64 @@ static const uint16_t s_glyphs[TI_GLYPH_COUNT][TI_H] = {
   },
 };
 
-void transportIconDraw(Display& d, int16_t x, int16_t y, ti_glyph_t glyph,
-                       uint16_t fg, uint16_t bg) {
-  if (glyph >= TI_GLYPH_COUNT) return;
+// What the corner currently shows. Set by main.cpp's tick, read by both
+// painters. Not synchronised: the stamp runs on the animation task and the
+// blit on the housekeeping loop, and the worst a race can do is draw one frame
+// with the previous glyph.
+static bool       s_shown  = false;
+static ti_glyph_t s_glyph  = TI_USB;
+static uint16_t   s_colour = 0;
 
-  // One caller — the housekeeping loop — so a file-scope buffer is enough, and
-  // it keeps 512 bytes off app_main's 3584-byte stack.
-  static uint16_t px[TI_W * TI_H];
-  const uint16_t* mask = s_glyphs[glyph];
-
+void transportIconBlit(Display& d, int16_t x, int16_t y) {
+  if (!s_shown) return;
+  // Run by run, not pixel by pixel and not as a blit: the panel has no alpha and
+  // drawImage565 has no colour key, so an opaque blit is the only way to use it —
+  // and an opaque blit is exactly the background patch that used to blink here.
+  // A run is one fillRect, and the glyph has about twenty-five of them, so this
+  // is a few milliseconds of panel time at the tick's 5 Hz. The animation path
+  // costs nothing extra: transportIconStamp() writes into the band buffer the
+  // player was pushing anyway.
+  const uint16_t* mask = s_glyphs[s_glyph];
   for (int row = 0; row < TI_H; row++) {
-    for (int col = 0; col < TI_W; col++) {
-      px[row * TI_W + col] = (mask[row] >> (TI_W - 1 - col)) & 1 ? fg : bg;
+    const uint16_t bits = mask[row];
+    if (!bits) continue;
+    int col = 0;
+    while (col < TI_W) {
+      if (!((bits >> (TI_W - 1 - col)) & 1)) { col++; continue; }
+      int end = col;
+      while (end < TI_W && ((bits >> (TI_W - 1 - end)) & 1)) end++;
+      d.fillRect(x + col, y + row, end - col, 1, s_colour);
+      col = end;
     }
   }
-  d.drawImage565(x, y, TI_W, TI_H, px);
+}
+
+void transportIconSet(bool shown, ti_glyph_t glyph, uint16_t colour) {
+  s_shown  = shown && glyph < TI_GLYPH_COUNT;
+  s_glyph  = glyph;
+  s_colour = colour;
+}
+
+void transportIconStamp(uint16_t* out, int stride, int x0, int bandY, int rows) {
+  if (!s_shown) return;
+
+  // The band covers panel rows [bandY, bandY + rows); the icon covers
+  // [TI_Y, TI_Y + TI_H). Their intersection, in buffer rows.
+  const int i0 = (TI_Y > bandY) ? TI_Y - bandY : 0;
+  const int below = TI_Y + TI_H - bandY;
+  const int i1 = (below < rows) ? below : rows;
+  if (i0 >= i1) return;
+
+  const int c0 = TI_X - x0;                     // the icon's column in the buffer
+  if (c0 < 0 || c0 + TI_W > stride) return;     // this band's art does not reach it
+
+  const uint16_t* mask = s_glyphs[s_glyph];
+  for (int i = i0; i < i1; i++) {
+    const uint16_t bits = mask[bandY + i - TI_Y];
+    if (!bits) continue;                        // nothing on this row: leave it
+    uint16_t* dst = out + (size_t)i * stride + c0;
+    for (int c = 0; c < TI_W; c++) {
+      if ((bits >> (TI_W - 1 - c)) & 1) dst[c] = s_colour;
+    }
+  }
 }

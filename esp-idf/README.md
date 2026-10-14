@@ -58,10 +58,11 @@ esp-idf/
 Themes do not ship in that image: a theme is a pack — a `.zip` of one
 `manifest.txt` and the `.caf` files it names — uploaded from the web page into
 `/littlefs/theme` at runtime. `main/default_pack.zip` is the exception and the
-safety net: the six states the Claude Code hooks drive, deflated to 168 KB and
-embedded in the app, which `theme_pack.c` expands onto the partition whenever it
-finds no manifest there (a fresh flash, or a failed upload). The theme sources
-and the packs built from them live at the repository root under `themes/`; see
+safety net: the `face` set, the orange pet's screen on the whole panel with every
+state it has, deflated to 7 KB and embedded in the app, which `theme_pack.c`
+expands onto the partition whenever it finds no manifest there (a fresh flash, or
+a failed upload). The theme sources and the packs built from them live at the
+repository root under `themes/`; see
 the top-level README for the `tools/mochi_theme.py bundle` step that makes one.
 
 The generated headers come from `tools/`: `logo2header.py` for the logo,

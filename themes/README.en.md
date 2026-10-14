@@ -19,11 +19,11 @@ previews and notes stay outside it (see the end of each section).
 
 | Pack | States | Unpacked | Zip | What it is |
 | --- | --- | --- | --- | --- |
-| [`clawd.zip`](clawd.zip) | 12 | 2054 KB | 384 KB | the crab from the upstream sticker set — the factory look |
+| [`clawd.zip`](clawd.zip) | 12 | 2054 KB | 384 KB | the crab from the upstream sticker set |
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | the orange cube pet, drawn in code |
 | [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | the calico cat (upstream `calico`) |
 | [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | the cloud (upstream `cloudling`) |
-| [`face.zip`](face.zip) | 11 | 311 KB | 7 KB | just the face, bezel to the panel's edge (another shell around `origin`'s) |
+| [`face.zip`](face.zip) | 11 | 310 KB | 7 KB | just the face, bezel to the panel's edge (another shell around `origin`'s) — **the factory look** |
 
 ---
 
@@ -228,9 +228,13 @@ device to magnify has to store", and only `scale > 1` tells those apart.
 
 The same faces from the same generator (`tools/origin_art.py`) in another shell:
 **no pet, only the screen** — and the screen fills the panel. The black bezel is
-16 px against all four edges, the lit panel 208×208, and the face is drawn on a
-16 px unit grid (twice `origin`'s 8 px, which is what lands it exactly in the 240
-panel). Six hook states and five spares, with faces identical to `origin`'s.
+just 2 px at the edges, the lit panel 236×236 out to it, and the face is drawn on
+a 16 px unit grid (twice `origin`'s 8 px: 208×192, centred on the
+panel). Six hook states and five spares, with faces identical to `origin`'s —
+except `working`: the `</>` on `origin`'s screen, blown up to the whole panel,
+is a wall of chevrons and not a face any more, so this set **reads code in
+glasses** instead — dark orange frames, black pupils going line by line behind
+the lenses, a cursor blinking in the corner.
 
 <table>
   <tr>
@@ -292,12 +296,13 @@ storage spent on nothing.
 
 ## What the firmware carries
 
-`esp-idf/main/default_pack.zip` (168 KB, 892 KB expanded) holds the **six hook
-states** of `clawd` only — a device that has never been pushed to still has a
-face. The six spare animations are not in it: all twelve come to 384 KB
-compressed and the app partition has 240 KB of room left (`idf.py build` prints
-the margin). When boot finds no manifest on the storage partition it expands this
-one there; `restore built-in` in the web UI does the same by hand.
+`esp-idf/main/default_pack.zip` (7 KB, 310 KB expanded) holds **all eleven states**
+of `face` — a device that has never been pushed to still has a face. This set is
+flat colour across the whole panel, so it compresses hard enough that even the
+five spare expressions fit; going back to `clawd` would mean 384 KB for twelve
+states, of which only the six hook ones would get in. When the storage partition
+has no manifest, the firmware expands this one onto it; the web UI's `restore
+built-in` does the same thing.
 
 ## Getting one onto the device
 

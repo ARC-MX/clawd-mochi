@@ -13,11 +13,11 @@ themes/<名字>.zip       # 打包给设备的那一个文件（tools/mochi_them
 
 | 包 | 状态 | 解压后 | zip | 角色 |
 | --- | --- | --- | --- | --- |
-| [`clawd.zip`](clawd.zip) | 12 | 2054 KB | 384 KB | 上游贴图集里的螃蟹，出厂外观 |
+| [`clawd.zip`](clawd.zip) | 12 | 2054 KB | 384 KB | 上游贴图集里的螃蟹 |
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | 橙色方块宠，素材是用代码画出来的 |
 | [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | 三花猫（上游 `calico`） |
 | [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | 云朵（上游 `cloudling`） |
-| [`face.zip`](face.zip) | 11 | 311 KB | 7 KB | 只有表情，整屏黑边（`origin` 那张脸的另一种外壳） |
+| [`face.zip`](face.zip) | 11 | 310 KB | 7 KB | 只有表情，整屏黑边（`origin` 那张脸的另一种外壳）—— **出厂外观** |
 
 ---
 
@@ -180,7 +180,7 @@ python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
 
 ## `face` —— 只有表情，整屏黑边（11 个状态）
 
-同一套脸、同一个生成器（`tools/origin_art.py`）的另一种外壳：**不要宠物，只要屏幕**，而且屏幕铺满整块面板 —— 黑框 16 px 贴四边、橙色屏 208×208，表情按 16 px 单位格画（`origin` 是 8 px，所以这是它的两倍，正好落在 240 面板里）。六个 hook 状态 + 五个备用，脸与 `origin` 完全一致。
+同一套脸、同一个生成器（`tools/origin_art.py`）的另一种外壳：**不要宠物，只要屏幕**，而且屏幕铺满整块面板 —— 黑边只有 2 px、橙色屏 236×236 填到边，表情按 16 px 单位格画（`origin` 是 8 px，所以这是它的两倍：208×192，居中）。六个 hook 状态 + 五个备用，脸与 `origin` 一致 —— 除了 `working`：`origin` 屏幕上那个 `</>` 放大到整块面板就成了一墙尖括号，不再是一张脸，所以这套改成**戴眼镜读代码**（深橙镜框、黑瞳孔在镜片里逐行扫，光标在右下角闪）。
 
 <table>
   <tr>
@@ -231,7 +231,7 @@ python3 tools/theme_gifs.py themes/face    pics/face
 
 ## 固件里内置的那份
 
-`esp-idf/main/default_pack.zip`（168 KB，展开 892 KB）只装 `clawd` 的**六个 hook 状态** —— 出厂就有脸，不用推任何东西。备用素材没进去：12 个全带上压缩后 384 KB，而 app 分区只剩 240 KB 余量（`idf.py build` 会打印余量）。开机时如果存储分区里没有 manifest，固件就把它展开过去；网页上的 `restore built-in` 做的是同一件事。
+`esp-idf/main/default_pack.zip`（7 KB，展开 310 KB）装的是 `face` 的**全部 11 个状态** —— 出厂就有脸，不用推任何东西。这套是整屏平涂色块，压缩率极高，所以连 5 个备用表情都放得下；换回 `clawd` 的话 12 个状态要 384 KB，只有 6 个 hook 状态进得去。开机时如果存储分区里没有 manifest，固件就把它展开过去；网页上的 `restore built-in` 做的是同一件事。
 
 ## 装到设备上
 

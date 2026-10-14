@@ -1559,22 +1559,33 @@ static void serialInit() {
 // breaks ties.
 //
 // Redrawn unconditionally on every housekeeping tick rather than tracked to a
-// change. Five independent paths paint over that corner — the player's
-// fillScreen on every state change, the boot card, the WiFi info screen,
-// drawCodeView(), and the canvas/img fillScreen — and each would have to
-// remember to notify us. A 16x16 blit is 512 bytes, about a tenth of a
-// millisecond on the bus, so self-healing by brute force is cheaper than that
-// coupling. The cost is that the icon is absent for up to one tick (200 ms)
-// after a state change wipes it.
+// change. Four independent paths paint over that corner — the boot card, the
+// WiFi info screen, drawCodeView(), and the canvas/img fillScreen — and each
+// would have to remember to notify us. A 16x16 blit is 512 bytes, about a tenth
+// of a millisecond on the bus, so self-healing by brute force is cheaper than
+// that coupling.
 //
-// (222,2)-(237,17) clears every shipped theme's bounding box: the packs that
-// reach the right edge all start at y>=18, and the ones that start at y=12 all
-// stop at x<=221. That is a property of this pack set, not of the format — the
-// converter's 12 px default margin only guarantees x<=227, and `--no-fit` can
-// produce full-bleed art, which would overwrite the icon every frame.
+// The animation is the fifth path, and the one no tick can keep up with: the
+// built-in `face` art is panel-sized, so every one of its frames covers the
+// corner, and it runs at 70..150 ms against this loop's 200 ms. Repainting on
+// top of a frame does not fix that either — the player pushes whole bands, so
+// the next band erases the icon again, and all that changes is that the flicker
+// speeds up to the frame rate. The icon has to be *in* the frame, which is what
+// transportIconStamp() does: it is registered with animSetBandCallback() and
+// draws the glyph into the band buffer the player is about to push. On a theme
+// whose art stays clear of the corner, this tick's own blit is still the whole
+// story; on one that does not, both run and agree.
+//
+// Neither of them draws a background any more. An opaque 16x16 patch was what a
+// panel-sized theme turned into a 5 Hz blink: the frames carry the artwork
+// there, this tick painted a card of the pet's background over it every 200 ms,
+// and nothing else — the glyph was already steady by then, from the stamp. With
+// the patch gone the corner is the art plus a few inked pixels, and the tick's
+// repaint is invisible because it redraws the same pixels.
 #define ICON_GRACE_MS 5000
-#define ICON_X (DISP_W - 18)     // 222
-#define ICON_Y 2
+static_assert(TI_X == DISP_W - 18 && TI_Y == 2,
+              "the transport icon moved in transport_icon.h; the erase and the "
+              "band stamp have to know where it is");
 
 // Which link gets the corner when two changed inside the same window, or when
 // none has changed recently and several are up.
@@ -1606,6 +1617,15 @@ static ti_glyph_t linkGlyph(uint8_t src) {
     case CMD_SRC_BLE:    return TI_BT;
     default:             return TI_WIFI;
   }
+}
+
+// Puts the corner back, deciding nothing. transportIconTick() below owns the
+// decision; this only re-blits what it last chose, which works because the icon
+// module remembers it — and the band stamp (transport_icon.c) reads the same
+// stored state, so the two painters can never disagree.
+static void transportIconRepaint() {
+  if (!s_iconShown) return;      // another view owns the panel, or nothing is up
+  transportIconBlit(tft, TI_X, TI_Y);
 }
 
 static void transportIconTick() {
@@ -1648,8 +1668,9 @@ static void transportIconTick() {
 
   if (pick == CMD_SRC_NONE) {
     if (s_iconShown) {
-      tft.fillRect(ICON_X, ICON_Y, TI_W, TI_H, animSurround);
+      tft.fillRect(TI_X, TI_Y, TI_W, TI_H, animSurround);
       s_iconShown = false;
+      transportIconSet(false, TI_USB, 0);
       ESP_LOGI(TAG, "icon: hidden");
     }
     s_iconLogged = CMD_SRC_NONE;
@@ -1657,9 +1678,14 @@ static void transportIconTick() {
   }
 
   const bool live = s_links[pick].live;
-  transportIconDraw(tft, ICON_X, ICON_Y, linkGlyph(pick),
-                    live ? C_ORANGE : C_MUTED, animSurround);
   s_iconShown = true;
+  // Ink while the link is up, grey while it is in its grace window. Not the
+  // accent orange the other panel text uses: the icon has no background of its
+  // own (transport_icon.h), so it sits on the artwork, and the pet's own ink is
+  // the only colour that reads on every theme — the accent is close enough to
+  // `face`'s screen that it would disappear into it.
+  transportIconSet(true, linkGlyph(pick), live ? C_DARKBG : C_MUTED);
+  transportIconRepaint();
 
   // One line per visible change. The panel has no read-back path, so this is
   // how the icon's logic gets checked without a camera pointed at it.
@@ -1796,6 +1822,10 @@ extern "C" void app_main() {
 #endif
 
   serialInit();             // also starts BLE, when ENABLE_BLE
+  // Before the player starts: panel-sized art covers the icon's corner in every
+  // frame, and the stamp is what keeps the icon inside those frames
+  // (transport_icon.h).
+  animSetBandCallback(transportIconStamp);
   animInit();
   animSetBackground(animSurround);
   // A stored background beats initColours()'s default: the colour picked last

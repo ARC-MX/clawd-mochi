@@ -3,6 +3,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +42,21 @@ void animInit(void);
 // Re-reads the theme after it has been replaced on disk: drops any cached
 // state and restarts on `idle`. Call once an upload has finished.
 void animReloadTheme(void);
+
+// Registers a function the player calls once per *band*, with the RGB565 band
+// buffer about to be pushed: `out` is `rows` rows of `stride` pixels whose first
+// panel row is `bandY` and whose first panel column is `x0`.
+//
+// It is the only place a caller can own pixels inside the animation's area. The
+// player pushes whole bands — a band is the panel's full width — so anything
+// drawn *after* a frame is erased by the next band push. That is what the corner
+// transport icon (main.cpp) uses it for: a theme whose art fills the panel
+// covers that corner in every frame, and repainting on top of the frame only
+// moved the flicker from the housekeeping tick's 5 Hz to the frame rate.
+//
+// Keep it short: it runs once per band, inside the frame, and must not block.
+typedef void (*animBandFn)(uint16_t* out, int stride, int x0, int bandY, int rows);
+void animSetBandCallback(animBandFn fn);
 
 #ifdef __cplusplus
 }

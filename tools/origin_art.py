@@ -21,8 +21,9 @@ is made from the same code and the same faces:
 The faces are identical in every shell; only what surrounds them changes, so a
 pose, a blink or a scroll reads the same wherever it is drawn. `panel` is the
 one that also changes the *size*: its face is drawn at twice the references's
-unit (16 px instead of 8), which is what makes 13 units of screen fill the
-panel's width edge to edge.
+unit (16 px instead of 8), which takes 13 units of face across most of the
+panel's width — and its bezel is a PANEL_BEZEL-px border at the panel's edge,
+not a frame drawn in cells.
 
 Four choices here are forced by the pipeline, not by taste:
 
@@ -89,6 +90,10 @@ MKTHEME = os.path.join(HERE, "mktheme.py")
 PANEL = 240        # the panel, and the GIF canvas, are the same thing
 GRID = 4           # every edge lands on this grid: crisp pixels, long runs
 MARGIN = 12        # gif2caf's default, and what the geometry below is built to
+PANEL_BEZEL = 2    # px of black at the panel's edge in the `panel` shell — the one
+                   # edge in this file that is not on the grid, on purpose: a
+                   # 4 px border already reads as a frame, and this is meant to
+                   # read as the panel's own edge
 
 # Palette, in the order the .caf stores it. Index 0 is the field: the firmware
 # never draws it, it lets the runtime background show through, so it is the
@@ -155,11 +160,12 @@ def set_shell(name):
     """Point the drawing at one composition's screen.
 
     `full`, `frame` and `bare` share the pet's screen. `panel` is the screen
-    filling the panel, so its bezel is the panel's own edge and the screen grows
-    to meet it — and growing the screen grows the face's unit with it, because
-    the faces are drawn in units: 13 units of 16 px is 208 px, and two 16 px
-    bezels make the 240 px panel exactly. Nothing about a face has to change for
-    that; it comes out twice the size.
+    filling the panel: its bezel is PANEL_BEZEL px at the panel's own edge and
+    the lit screen runs out to it, so SCR_* here is the *face's* area rather
+    than the screen's — 13 units of 16 px across and 12 down, centred on the
+    panel. Growing the unit is what grows the face, because the faces are drawn
+    in units; nothing about a face has to change for that, it comes out twice
+    the size.
     """
     global SHELL, UNIT, SCR_INSET
     global BEZEL_X0, BEZEL_X1, BEZEL_Y0, BEZEL_Y1, SCR_X0, SCR_X1, SCR_Y0, SCR_Y1
@@ -167,10 +173,10 @@ def set_shell(name):
 
     SHELL = name
     if name == "panel":
-        UNIT, SCR_INSET = 16, 4
+        UNIT, SCR_INSET = 16, 0
         BEZEL_X0, BEZEL_X1, BEZEL_Y0, BEZEL_Y1 = 0, 59, 0, 59
-        SCR_X0, SCR_X1 = 4, 55       # 52 cells = 13 units of 16 px, the faces' width
-        SCR_Y0, SCR_Y1 = 6, 53       # 48 cells = 12 units, centred in that screen
+        SCR_X0, SCR_X1 = 4, 55       # 52 cells = 13 units of 16 px: (240-208)/2 = 16 px in
+        SCR_Y0, SCR_Y1 = 6, 53       # 48 cells = 12 units: (240-192)/2 = 24 px down
     else:
         UNIT, SCR_INSET = 8, 1
         BEZEL_X0, BEZEL_X1, BEZEL_Y0, BEZEL_Y1 = 15, 44, 12, 39
@@ -251,14 +257,19 @@ def draw_pet(d, p, face, i, n):
     squeeze = p.get("squeeze", 0)
 
     if SHELL == "panel":
-        # The frame is the panel's own edge, so a pose has nowhere to move it:
+        # The bezel is the panel's own edge, so a pose has nowhere to move it:
         # the hop and the breath move the *face* inside the screen instead,
-        # which is what they look like with no body to carry them. The screen
-        # has room for the pet's own amplitudes (8 px above the face, 24 below)
-        # and no more, so they stay as authored — twice the face, same motion.
-        cell(d, BEZEL_X0, BEZEL_Y0, BEZEL_X1, BEZEL_Y1, INK)
-        cell(d, SCR_X0, BEZEL_Y0 + SCR_INSET, SCR_X1, BEZEL_Y1 - SCR_INSET,
-             surface())
+        # which is what they look like with no body to carry them. The face
+        # sits 24 px in from the top and bottom, which is room for the pet's
+        # own amplitudes and then some, so they stay as authored — twice the
+        # face, same motion.
+        #
+        # Drawn in pixels, not cells: PANEL_BEZEL is the one measure in this
+        # file that is finer than the grid.
+        d.rectangle((0, 0, PANEL - 1, PANEL - 1), fill=INK)
+        d.rectangle((PANEL_BEZEL, PANEL_BEZEL,
+                     PANEL - 1 - PANEL_BEZEL, PANEL - 1 - PANEL_BEZEL),
+                    fill=surface())
         # squeeze has no sides left to pull in, so it shakes the face a cell
         # down on alternate frames: the same flinch, from the other end.
         dy = (squash - hop) * GRID - (GRID if squeeze else 0)
@@ -348,6 +359,31 @@ def face_coding(d, ox, oy, i, n, p):
         u = 1 + k * 3 - p.get("scroll", 0) % 3
         if 0 <= u and u + 2 <= FACE_U:
             unit(d, ox, oy, u, 10, 2, 1, INK)
+    if p.get("cursor"):
+        unit(d, ox, oy, 11, 9, 1, 2, INK)
+
+
+def face_focus(d, ox, oy, i, n, p):
+    """Glasses, and eyes reading behind them — the `face` theme's working face.
+
+    At panel size the reference's `</>` is a wall of chevrons rather than a
+    face, so that shell works in glasses instead (see pack()). The frames are
+    drawn in the pet's shadow orange, not ink: a pupil is one unit, and a black
+    pupil against a black frame is a thicker corner, not an eye. Reading is the
+    animation — the pupil goes along one line of the lens and down to the next,
+    the way eyes go over code.
+    """
+    px, py = p.get("read", (0, 0))
+    for u in (1, 8):
+        unit(d, ox, oy, u, 2, 4, 1, SHADE)
+        unit(d, ox, oy, u, 5, 4, 1, SHADE)
+        unit(d, ox, oy, u, 3, 1, 2, SHADE)
+        unit(d, ox, oy, u + 3, 3, 1, 2, SHADE)
+    unit(d, ox, oy, 5, 3, 3, 1, SHADE)              # the bridge
+    if not p.get("blink"):
+        for u in (2, 9):
+            unit(d, ox, oy, u + px, 3 + py, 1, 1, INK)
+    unit(d, ox, oy, 5, 8, 3, 1, INK)                # a mouth set in concentration
     if p.get("cursor"):
         unit(d, ox, oy, 11, 9, 1, 2, INK)
 
@@ -443,6 +479,7 @@ FACE = {
     "standby": face_standby,
     "thinking": face_thinking,
     "coding": face_coding,
+    "focus": face_focus,
     "done": face_done,
     "error": face_error,
     "sleeping": face_sleeping,
@@ -462,6 +499,7 @@ STATES = [
     ("standby", "standby", 24, 120),     # idle: the pose the panel rests on
     ("thinking", "thinking", 16, 100),
     ("coding", "coding", 20, 80),        # working
+    ("focus", "focus", 20, 80),          # working, in the panel shell — see pack()
     ("done", "done", 16, 80),
     ("error", "error", 12, 90),
     ("sleeping", "sleeping", 24, 150),   # the nap
@@ -489,6 +527,15 @@ def pose_thinking(i, n):
 
 def pose_coding(i, n):
     return {"scroll": i, "cursor": (i // 5) % 2, "squash": 1 if i % 6 == 5 else 0}
+
+
+def pose_focus(i, n):
+    # Two frames a glance, along one line of the lens and down to the next, the
+    # way eyes read; a blink before the loop comes round; the cursor on a beat
+    # of its own; and a nod every fourth frame, which is the typing.
+    scan = ((0, 0), (1, 0), (0, 1), (1, 1))
+    return {"read": scan[(i // 2) % 4], "cursor": (i // 4) % 2,
+            "blink": i in (16, 17), "squash": 1 if i % 4 == 3 else 0}
 
 
 def pose_done(i, n):
@@ -537,6 +584,7 @@ POSE = {
     "standby": pose_standby,
     "thinking": pose_thinking,
     "coding": pose_coding,
+    "focus": pose_focus,
     "done": pose_done,
     "error": pose_error,
     "sleeping": pose_sleeping,
@@ -772,15 +820,21 @@ def pack(gif_dir, out_dir, prefix):
     The mapping is explicit because the art here is named after the *face*
     (standby, coding, done, slack), not after the upstream sticker sets' names.
 
+    `working` is the one state whose face depends on the shell. The pet's is
+    the reference sheet's `</>`, which on the pet's screen is a glyph it shows
+    you; blown up to the panel it is a wall of chevrons and not a face at all,
+    so the `panel` shell works in glasses instead (face_focus).
+
     `panel` also needs `--margin 0` and `--opaque`: its art is the whole panel,
     so any margin would leave the converter fitting a 240 px picture into a
     216 px box (a scale of 0.9, which puts every edge in the art between two
     pixels), and its bezel reaches the frame's own border, where the converter
     looks for a background to replace.
     """
+    working = "focus" if SHELL == "panel" else "coding"
     cmd = [sys.executable, MKTHEME, gif_dir, "-o", out_dir, "--prefix", prefix,
            "--no-upscale", "--budget", "2400",
-           "--map", "idle=standby", "--map", "working=coding",
+           "--map", "idle=standby", "--map", f"working={working}",
            "--map", "done=done",
            "--spares", "happy,slack,grin,shine,blank"]
     if SHELL == "panel":
