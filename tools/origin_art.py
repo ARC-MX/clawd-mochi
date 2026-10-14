@@ -363,29 +363,90 @@ def face_coding(d, ox, oy, i, n, p):
         unit(d, ox, oy, 11, 9, 1, 2, INK)
 
 
-def face_focus(d, ox, oy, i, n, p):
-    """Glasses, and eyes reading behind them — the `face` theme's working face.
+def face_code(d, ox, oy, i, n, p):
+    """`</>` with the chevrons for eyes — the `face` set's working face.
 
-    At panel size the reference's `</>` is a wall of chevrons rather than a
-    face, so that shell works in glasses instead (see pack()). The frames are
-    drawn in the pet's shadow orange, not ink: a pupil is one unit, and a black
-    pupil against a black frame is a thicker corner, not an eye. Reading is the
-    animation — the pupil goes along one line of the lens and down to the next,
-    the way eyes go over code.
+    Drawn on the art's own 4 px cell rather than the 16 px unit the other faces
+    use, because at the unit's weight this mark stops being a mark: three glyphs
+    a unit thick, all the same height, read as three slabs. The render's is thin
+    and the slash runs *past* the brackets on both sides, which is what makes it
+    look like something typed rather than three objects — the shape below is the
+    reference's, at a stroke two cells wide.
+
+    The chevrons are the eyes, so they blink the way the other faces do, and the
+    slash does not: blinking with them would read as the whole mark flickering
+    rather than as something looking back at you. Three dots counting up
+    underneath are the loading, which is what the pet's own version (face_coding)
+    says with a line of scrolling code and a cursor — a second moving thing that
+    does not survive being brought up to panel size.
     """
-    px, py = p.get("read", (0, 0))
-    for u in (1, 8):
-        unit(d, ox, oy, u, 2, 4, 1, SHADE)
-        unit(d, ox, oy, u, 5, 4, 1, SHADE)
-        unit(d, ox, oy, u, 3, 1, 2, SHADE)
-        unit(d, ox, oy, u + 3, 3, 1, 2, SHADE)
-    unit(d, ox, oy, 5, 3, 3, 1, SHADE)              # the bridge
-    if not p.get("blink"):
-        for u in (2, 9):
-            unit(d, ox, oy, u + px, 3 + py, 1, 1, INK)
-    unit(d, ox, oy, 5, 8, 3, 1, INK)                # a mouth set in concentration
-    if p.get("cursor"):
-        unit(d, ox, oy, 11, 9, 1, 2, INK)
+    def cb(x0, y0, rows):
+        """Stamp a '#'/'.' bitmap, one character per 4 px cell."""
+        for dv, row in enumerate(rows):
+            for du, ch in enumerate(row):
+                if ch == "#":
+                    d.rectangle((ox + (x0 + du) * GRID, oy + (y0 + dv) * GRID,
+                                 ox + (x0 + du + 1) * GRID - 1,
+                                 oy + (y0 + dv + 1) * GRID - 1), fill=INK)
+
+    LEFT = ("....###", "...###.", "..###..", ".###...", "###....",
+            "###....", ".###...", "..###..", "...###.", "....###")
+    SLASH = ("......###", "......###", ".....###.", ".....###.", "....###..",
+             "....###..", "...###...", "...###...", "..###....", "..###....",
+             "###.....", "###.....", "###.....", "###.....")
+    SHUT = ("#######", "#######", "#######")     # where a chevron's point is
+
+    if p.get("blink"):
+        cb(10, 21, SHUT)
+        cb(34, 21, SHUT)
+    else:
+        cb(10, 17, LEFT)
+        cb(34, 17, tuple(row[::-1] for row in LEFT))     # the same chevron mirrored
+
+    cb(21, 15, SLASH)                     # taller than the brackets, on purpose
+
+    for k in range(p.get("dots", 0)):     # the loading, centred under the mark
+        cb(16 + k * 8, 34, ("###", "###", "###"))
+
+
+def face_ponder(d, ox, oy, i, n, p):
+    """The render's other pair of eyes, as the `face` set's spare.
+
+    A squinting bracket on the left and a wide-open ring on the right, about two
+    cells of a 4 px grid thick — finer than anything else in this set, where
+    every other face is built from 8 or 16 px units. It is a spare rather than
+    the `thinking` state's face (see pack()): at panel size those shapes are the
+    expression, but the pair of squares the pet's own screen shows is what the
+    thinking state plays, and this one is here for the web UI's expression list.
+
+    The eyes are shapes rather than pupils, so a pose cannot move a gaze here —
+    the ellipsis arriving one dot at a time and a blink are what animate it.
+    """
+    def fc(x0, y0, x1, y1, fill=INK):
+        d.rectangle((ox + x0 * GRID, oy + y0 * GRID,
+                     ox + (x1 + 1) * GRID - 1, oy + (y1 + 1) * GRID - 1), fill=fill)
+
+    if p.get("blink"):
+        # Both shut, each as a bar where its own middle was.
+        fc(12, 18, 17, 19)
+        fc(33, 18, 40, 19)
+    else:
+        # Left: a bracket opening left, two cells of ink around a two-cell gap.
+        fc(12, 16, 17, 17)
+        fc(16, 18, 17, 19)
+        fc(12, 20, 17, 21)
+        # Right: a ring, same stroke, four cells of screen showing through.
+        fc(33, 16, 40, 17)
+        fc(33, 18, 34, 21)
+        fc(39, 18, 40, 21)
+        fc(33, 22, 40, 23)
+
+    fc(25, 25, 26, 26)                    # the mouth: the render's single dot
+    fc(8, 22, 9, 23, BLUSH)               # blush, a cell each side
+    fc(42, 22, 43, 23, BLUSH)
+
+    for k in range(p.get("dots", 0)):     # the ellipsis that makes it thinking
+        fc(44 + k * 3, 33, 45 + k * 3, 34)
 
 
 def face_done(d, ox, oy, i, n, p):
@@ -479,7 +540,8 @@ FACE = {
     "standby": face_standby,
     "thinking": face_thinking,
     "coding": face_coding,
-    "focus": face_focus,
+    "code": face_code,
+    "ponder": face_ponder,
     "done": face_done,
     "error": face_error,
     "sleeping": face_sleeping,
@@ -499,7 +561,8 @@ STATES = [
     ("standby", "standby", 24, 120),     # idle: the pose the panel rests on
     ("thinking", "thinking", 16, 100),
     ("coding", "coding", 20, 80),        # working
-    ("focus", "focus", 20, 80),          # working, in the panel shell — see pack()
+    ("code", "code", 24, 80),            # working, in the panel shell — see pack()
+    ("ponder", "ponder", 20, 100),       # spare, and the render's other eyes
     ("done", "done", 16, 80),
     ("error", "error", 12, 90),
     ("sleeping", "sleeping", 24, 150),   # the nap
@@ -529,13 +592,20 @@ def pose_coding(i, n):
     return {"scroll": i, "cursor": (i // 5) % 2, "squash": 1 if i % 6 == 5 else 0}
 
 
-def pose_focus(i, n):
-    # Two frames a glance, along one line of the lens and down to the next, the
-    # way eyes read; a blink before the loop comes round; the cursor on a beat
-    # of its own; and a nod every fourth frame, which is the typing.
-    scan = ((0, 0), (1, 0), (0, 1), (1, 1))
-    return {"read": scan[(i // 2) % 4], "cursor": (i // 4) % 2,
-            "blink": i in (16, 17), "squash": 1 if i % 4 == 3 else 0}
+def pose_code(i, n):
+    # The dots count one, two, three and start over — the loading. Two frames a
+    # dot divides 24 exactly, so the count never stutters across the loop seam.
+    # The blink comes once, late, and away from the reset for the same reason.
+    return {"dots": 1 + (i // 2) % 3, "blink": i in (20, 21),
+            "squash": (0, 0, 1, 1, 0, 0, 0, 0)[i % 8]}
+
+
+def pose_ponder(i, n):
+    # The ellipsis arrives one dot at a time and holds a beat before the next,
+    # which is the whole of the thinking; then a blink, and the breath the other
+    # faces have.
+    return {"dots": (i % 12) // 4, "blink": i in (16, 17),
+            "squash": (0, 0, 1, 1, 0, 0, 0, 0)[i % 8]}
 
 
 def pose_done(i, n):
@@ -584,7 +654,8 @@ POSE = {
     "standby": pose_standby,
     "thinking": pose_thinking,
     "coding": pose_coding,
-    "focus": pose_focus,
+    "code": pose_code,
+    "ponder": pose_ponder,
     "done": pose_done,
     "error": pose_error,
     "sleeping": pose_sleeping,
@@ -820,10 +891,10 @@ def pack(gif_dir, out_dir, prefix):
     The mapping is explicit because the art here is named after the *face*
     (standby, coding, done, slack), not after the upstream sticker sets' names.
 
-    `working` is the one state whose face depends on the shell. The pet's is
-    the reference sheet's `</>`, which on the pet's screen is a glyph it shows
-    you; blown up to the panel it is a wall of chevrons and not a face at all,
-    so the `panel` shell works in glasses instead (face_focus).
+    `working` is the one state whose face depends on the shell. The pet's keeps a
+    line of scrolling code under its glyphs (face_coding); on the panel that line
+    reads as a second, busier subject under the first, so the `panel` shell shows
+    the glyphs alone (face_code), arriving one at a time.
 
     `panel` also needs `--margin 0` and `--opaque`: its art is the whole panel,
     so any margin would leave the converter fitting a 240 px picture into a
@@ -831,12 +902,12 @@ def pack(gif_dir, out_dir, prefix):
     pixels), and its bezel reaches the frame's own border, where the converter
     looks for a background to replace.
     """
-    working = "focus" if SHELL == "panel" else "coding"
+    working = "code" if SHELL == "panel" else "coding"
     cmd = [sys.executable, MKTHEME, gif_dir, "-o", out_dir, "--prefix", prefix,
            "--no-upscale", "--budget", "2400",
            "--map", "idle=standby", "--map", f"working={working}",
            "--map", "done=done",
-           "--spares", "happy,slack,grin,shine,blank"]
+           "--spares", "happy,slack,grin,shine,blank,ponder"]
     if SHELL == "panel":
         cmd += ["--margin", "0", "--opaque"]
     print(f"\n$ {' '.join(cmd[1:])}")

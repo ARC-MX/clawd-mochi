@@ -22,7 +22,7 @@ scale=1
 
 idle=face-standby.caf
 thinking=face-thinking.caf
-working=face-focus.caf
+working=face-code.caf
 done=face-done.caf
 error=face-error.caf
 sleep=face-sleeping.caf
@@ -32,3 +32,4 @@ spare-slack=face-slack.caf
 spare-grin=face-grin.caf
 spare-shine=face-shine.caf
 spare-blank=face-blank.caf
+spare-ponder=face-ponder.caf

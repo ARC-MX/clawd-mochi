@@ -210,8 +210,8 @@ rather than leaving an empty theme; the `restore built-in` button does the same
 by hand.
 
 What is built in is `themes/face` — the orange cube pet's face, its bezel out to
-the panel's edges, with **all eleven states** in it (the five spares included).
-That comes to **7 KB** compressed and 310 KB expanded, so a device that has never
+the panel's edges, with **all twelve states** in it (the six spares included).
+That comes to **7 KB** compressed and 338 KB expanded, so a device that has never
 been pushed to still has a face. It is that small because the whole panel is flat
 colour: the same eleven states cost 384 KB in `clawd`, which is why that set
 ships with only the six states the hooks drive. How the built-in works is in
@@ -227,7 +227,7 @@ Budget the waiting time for the partition's own pace: littlefs writes in 128-byt
 units, about **78 KB/s**, and the progress bar in the web UI only covers the
 transfer. The slow part comes after it — a 2 MB pack is another **25 seconds** of
 writing, `themes/origin` (296 KB) about 4. The first boot after a flash is the
-same story: the device writes the 310 KB built-in pack first, and the panel sits
+same story: the device writes the 338 KB built-in pack first, and the panel sits
 on the boot card for about 5 seconds.
 
 ### The states this theme provides

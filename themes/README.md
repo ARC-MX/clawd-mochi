@@ -17,7 +17,7 @@ themes/<名字>.zip       # 打包给设备的那一个文件（tools/mochi_them
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | 橙色方块宠，素材是用代码画出来的 |
 | [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | 三花猫（上游 `calico`） |
 | [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | 云朵（上游 `cloudling`） |
-| [`face.zip`](face.zip) | 11 | 310 KB | 7 KB | 只有表情，整屏黑边（`origin` 那张脸的另一种外壳）—— **出厂外观** |
+| [`face.zip`](face.zip) | 12 | 338 KB | 7 KB | 只有表情，整屏黑边（`origin` 那张脸的另一种外壳）—— **出厂外观** |
 
 ---
 
@@ -178,9 +178,9 @@ python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
 
 校验器认得这两种位置：`verify_caf.py` 对这两个包报 `OK ... (recentred)`，对 `clawd`/`origin`/`face` 报普通的 `OK`。`scale=1` 时两种位置本来就重合，所以这条判定不会放过真问题 —— 它区分的是"转换器算的位置"和"放大推送的包该存的位置"，两者只有 `scale>1` 才会分开。
 
-## `face` —— 只有表情，整屏黑边（11 个状态）
+## `face` —— 只有表情，整屏黑边（12 个状态）
 
-同一套脸、同一个生成器（`tools/origin_art.py`）的另一种外壳：**不要宠物，只要屏幕**，而且屏幕铺满整块面板 —— 黑边只有 2 px、橙色屏 236×236 填到边，表情按 16 px 单位格画（`origin` 是 8 px，所以这是它的两倍：208×192，居中）。六个 hook 状态 + 五个备用，脸与 `origin` 一致 —— 除了 `working`：`origin` 屏幕上那个 `</>` 放大到整块面板就成了一墙尖括号，不再是一张脸，所以这套改成**戴眼镜读代码**（深橙镜框、黑瞳孔在镜片里逐行扫，光标在右下角闪）。
+同一套脸、同一个生成器（`tools/origin_art.py`）的另一种外壳：**不要宠物，只要屏幕**，而且屏幕铺满整块面板 —— 黑边只有 2 px、橙色屏 236×236 填到边，表情按 16 px 单位格画（`origin` 是 8 px，所以这是它的两倍：208×192，居中）。六个 hook 状态 + 六个备用，脸与 `origin` 一致 —— 除了 `working`：这套保留渲染图里那三个 `</>` 字形，去掉它们下面那行滚动代码（在整屏尺度上那行是第二个更热闹的主体），改为**眼睛一眨一眨**：两个尖括号是眼睛，眨的时候收成横杠，中间那道斜杠不眨（跟着眨就成了整个记号在闪）；下面三个点一个一个亮起来再循环，是加载中 —— 原版用那行滚动代码和光标说的就是这件事。多出来的那张备用表情 `spare-ponder` 是渲染图里的另一对眼睛：左边眯着的方括号、右边睁大的方环，比本套其它脸更精细（4 px 一格），配居中的嘴点和两颊腮红。
 
 <table>
   <tr>
@@ -202,6 +202,7 @@ python3 tools/theme_gifs.py themes/cloudling pics/cloudling '#cfe7f7'
     <td align="center"><img src="../pics/face/spare-grin.gif" width="130"><br><code>spare-grin</code> 大笑</td>
     <td align="center"><img src="../pics/face/spare-shine.gif" width="130"><br><code>spare-shine</code> 闪亮</td>
     <td align="center"><img src="../pics/face/spare-blank.gif" width="130"><br><code>spare-blank</code> 无语</td>
+    <td align="center"><img src="../pics/face/spare-ponder.gif" width="130"><br><code>spare-ponder</code> 沉思</td>
   </tr>
 </table>
 
@@ -231,7 +232,7 @@ python3 tools/theme_gifs.py themes/face    pics/face
 
 ## 固件里内置的那份
 
-`esp-idf/main/default_pack.zip`（7 KB，展开 310 KB）装的是 `face` 的**全部 11 个状态** —— 出厂就有脸，不用推任何东西。这套是整屏平涂色块，压缩率极高，所以连 5 个备用表情都放得下；换回 `clawd` 的话 12 个状态要 384 KB，只有 6 个 hook 状态进得去。开机时如果存储分区里没有 manifest，固件就把它展开过去；网页上的 `restore built-in` 做的是同一件事。
+`esp-idf/main/default_pack.zip`（7 KB，展开 338 KB）装的是 `face` 的**全部 12 个状态** —— 出厂就有脸，不用推任何东西。这套是整屏平涂色块，压缩率极高，所以连 6 个备用表情都放得下；换回 `clawd` 的话 12 个状态要 384 KB，只有 6 个 hook 状态进得去。开机时如果存储分区里没有 manifest，固件就把它展开过去；网页上的 `restore built-in` 做的是同一件事。
 
 ## 装到设备上
 

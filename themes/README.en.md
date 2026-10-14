@@ -23,7 +23,7 @@ previews and notes stay outside it (see the end of each section).
 | [`origin.zip`](origin.zip) | 11 | 408 KB | 8 KB | the orange cube pet, drawn in code |
 | [`calico.zip`](calico.zip) | 10 | 1506 KB | 725 KB | the calico cat (upstream `calico`) |
 | [`cloudling.zip`](cloudling.zip) | 10 | 572 KB | 235 KB | the cloud (upstream `cloudling`) |
-| [`face.zip`](face.zip) | 11 | 310 KB | 7 KB | just the face, bezel to the panel's edge (another shell around `origin`'s) — **the factory look** |
+| [`face.zip`](face.zip) | 12 | 338 KB | 7 KB | just the face, bezel to the panel's edge (another shell around `origin`'s) — **the factory look** |
 
 ---
 
@@ -224,17 +224,23 @@ positions coincide, so this cannot paper over a real problem — what it separat
 is "the position the converter computes" from "the position a pack that asks the
 device to magnify has to store", and only `scale > 1` tells those apart.
 
-## `face` — just the face, bezel to the edge (11 states)
+## `face` — just the face, bezel to the edge (12 states)
 
 The same faces from the same generator (`tools/origin_art.py`) in another shell:
 **no pet, only the screen** — and the screen fills the panel. The black bezel is
 just 2 px at the edges, the lit panel 236×236 out to it, and the face is drawn on
 a 16 px unit grid (twice `origin`'s 8 px: 208×192, centred on the
-panel). Six hook states and five spares, with faces identical to `origin`'s —
-except `working`: the `</>` on `origin`'s screen, blown up to the whole panel,
-is a wall of chevrons and not a face any more, so this set **reads code in
-glasses** instead — dark orange frames, black pupils going line by line behind
-the lenses, a cursor blinking in the corner.
+panel). Six hook states and six spares, with faces identical to `origin`'s —
+except `working`: this set keeps the three `</>` glyphs the render shows and
+drops the line of scrolling code under them, which at this size reads as a
+second, busier subject below the first. The chevrons blink instead — they are
+the eyes, and they shut into bars while the slash between them holds, since a
+slash that blinked too would read as the whole mark flickering — and three dots
+count up underneath for the loading, which is what the pet's version says with
+that scrolling line and a cursor. The extra spare,
+`spare-ponder`, is the render's other pair of eyes: a squint on the left, a
+wide-open ring on the right, finer than anything else here (a 4 px cell), over a
+centred mouth dot and two blushes.
 
 <table>
   <tr>
@@ -256,6 +262,7 @@ the lenses, a cursor blinking in the corner.
     <td align="center"><img src="../pics/face/spare-grin.gif" width="130"><br><code>spare-grin</code></td>
     <td align="center"><img src="../pics/face/spare-shine.gif" width="130"><br><code>spare-shine</code></td>
     <td align="center"><img src="../pics/face/spare-blank.gif" width="130"><br><code>spare-blank</code></td>
+    <td align="center"><img src="../pics/face/spare-ponder.gif" width="130"><br><code>spare-ponder</code></td>
   </tr>
 </table>
 
@@ -296,7 +303,7 @@ storage spent on nothing.
 
 ## What the firmware carries
 
-`esp-idf/main/default_pack.zip` (7 KB, 310 KB expanded) holds **all eleven states**
+`esp-idf/main/default_pack.zip` (7 KB, 338 KB expanded) holds **all twelve states**
 of `face` — a device that has never been pushed to still has a face. This set is
 flat colour across the whole panel, so it compresses hard enough that even the
 five spare expressions fit; going back to `clawd` would mean 384 KB for twelve
