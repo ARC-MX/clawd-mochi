@@ -10,7 +10,7 @@ A physical desk companion inspired by **Clawd** — the pixel-crab mascot of Cla
 **中文（默认）: [README.md](README.md)** — this file is the English version. If the two
 disagree, the Chinese one is what this fork treats as authoritative.
 
-**Cost: ~$6–8 · Build time: ~1 hour · Skill level: Beginner**
+**Build time: ~1 hour · Skill level: Beginner**
 
 Support the project on Instagram: [![Instagram](https://img.shields.io/badge/Instagram-E4405F?logo=instagram&logoColor=fff&style=for-the-badge)](https://instagram.com/clawd.mochi)
 
@@ -43,17 +43,15 @@ Clawd Mochi sits on your desk and shows animated expressions on a small color di
 
 ## Parts list
 
-| Part                | Spec                             | ~Price |
-| ------------------- | -------------------------------- | ------ |
-| ESP32-C3 Super Mini | microcontroller with WiFi        | ~$2.50 |
-| ST7789 1.54" TFT    | 240×240 SPI color display        | ~$3.00 |
-| 8 short wires       | 8–10 cm Dupont / jumper wires    | ~$0.50 |
-| 2× M2×6mm screws    | to mount display bezel           | ~$0.10 |
-| Double-sided tape   | to secure components inside case | ~$0.10 |
-| USB-C cable         | for power                        | —      |
-| 3D printed case     | PLA or PETG, ~30g                | ~$0.50 |
-
-**Total: ~$7–8**
+| Part                | Spec                             |
+| ------------------- | -------------------------------- |
+| ESP32-C3 Super Mini | microcontroller with WiFi        |
+| ST7789 1.54" TFT    | 240×240 SPI color display        |
+| 8 short wires       | 8–10 cm Dupont / jumper wires    |
+| 2× M2×6mm screws    | to mount display bezel           |
+| Double-sided tape   | to secure components inside case |
+| USB-C cable         | for power                        |
+| 3D printed case     | PLA or PETG, ~30g                |
 
 ---
 
